@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { isNode, isSeq, parseDocument, stringify } from 'yaml'
 import { buildApplications } from '../dashboard/src/domain/applications'
 import { slugify } from '../dashboard/src/domain/format'
+import { buildMessages, serializeMessage } from '../dashboard/src/domain/messages'
 import { JOB_DESCRIPTION_FILE, emptyJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription'
 import { applicationSchema, type TimelineEntry } from '../dashboard/src/domain/schema'
 import { APPLIED_STATUS, CLOSED_STATUSES, INITIAL_STATUS, STATUSES, type Status } from '../dashboard/src/domain/constants'
@@ -240,5 +241,39 @@ export class Store {
       }
       throw error
     }
+  }
+  messages() {
+    if (!existsSync(this.path('messages'))) return { messages: [], errors: [] }
+    const files: Record<string, string> = {}
+    for (const file of readdirSync(this.path('messages'), { withFileTypes: true })) {
+      const slug = file.name.slice(0, -3)
+      if (file.isFile() && file.name.endsWith('.md') && identifier.test(slug)) files[slug] = this.read(`messages/${file.name}`)
+    }
+    const result = buildMessages(files)
+    return { ...result, messages: result.messages.map(m => ({ ...m, revision: revision(files[m.slug]) })) }
+  }
+  message(slug: string) {
+    this.id(slug)
+    const m = this.messages().messages.find(m => m.slug === slug)
+    if (!m) throw new StoreError(404, 'Message missing or invalid')
+    return m
+  }
+  createMessage(input: { title: string; content: string }) {
+    const slug = slugify(input.title)
+    if (!slug) throw new StoreError(400, 'Title needs at least one letter or digit')
+    mkdirSync(this.path('messages'), { recursive: true })
+    if (existsSync(this.path(`messages/${slug}.md`))) throw new StoreError(409, `Message ${slug} already exists`)
+    this.write(`messages/${slug}.md`, serializeMessage(input.title, input.content), null)
+    return this.message(slug)
+  }
+  saveMessage(slug: string, input: { title: string; content: string; revision: string }) {
+    this.write(`messages/${this.id(slug)}.md`, serializeMessage(input.title, input.content), input.revision)
+    return this.message(slug)
+  }
+  deleteMessage(slug: string, input: { revision: string }) {
+    const relative = `messages/${this.id(slug)}.md`
+    if (revision(this.read(relative)) !== input.revision) throw new StoreError(409, 'File changed. Reload before deleting.')
+    unlinkSync(this.path(relative))
+    return { slug }
   }
 }

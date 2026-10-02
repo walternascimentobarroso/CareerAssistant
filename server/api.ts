@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { STATUSES } from '../dashboard/src/domain/constants'
+import { messageSchema } from '../dashboard/src/domain/messages'
 import { timelineEntrySchema } from '../dashboard/src/domain/schema'
 import { Ai, PROVIDER_IDS } from './ai'
 import { EDITABLE_FIELDS, Store, StoreError } from './store'
@@ -24,6 +25,9 @@ const updateApplicationInput = z.strictObject({ revision: hash, fields, event: t
 const deleteInput = z.strictObject({ revision: hash })
 const noteInput = z.strictObject({ revision: hash, note: z.string().trim().min(1).max(100_000) })
 const jobDescriptionInput = z.strictObject({ content, revision: hash.nullable() })
+const messageFields = { title: messageSchema.shape.title, content: z.string().trim().min(1).max(100_000) }
+const createMessageInput = z.strictObject(messageFields)
+const saveMessageInput = z.strictObject({ ...messageFields, revision: hash })
 const attachInput = z.strictObject({ name: z.string(), revision: hash, sourceRevision: hash, cvRevision: hash.nullable(), allowHistoricalEdit: z.boolean().optional() })
 
 async function body(req: IncomingMessage) {
@@ -65,6 +69,12 @@ export function api(store: Store, fetcher: typeof fetch = fetch) {
         if (req.method === 'GET') return send(200, id ? store.cv(id) : store.cvs())
         if (req.method === 'POST' && !id) { const b = createInput.parse(await body(req)); return send(201, store.saveCv(b.name, b.content, null)) }
         if (req.method === 'PUT' && id) { const b = cvInput.parse(await body(req)); return send(200, store.saveCv(id, b.content, b.revision)) }
+      }
+      if (collection === 'messages' && !action) {
+        if (req.method === 'GET' && !id) return send(200, store.messages())
+        if (req.method === 'POST' && !id) return send(201, store.createMessage(createMessageInput.parse(await body(req))))
+        if (req.method === 'PUT' && id) return send(200, store.saveMessage(id, saveMessageInput.parse(await body(req))))
+        if (req.method === 'DELETE' && id) return send(200, store.deleteMessage(id, deleteInput.parse(await body(req))))
       }
       if (collection === 'settings' && !id) {
         if (req.method === 'GET') return send(200, ai.settings())

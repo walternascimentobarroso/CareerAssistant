@@ -275,3 +275,30 @@ test('delete removes only first-stage applications and rejects stale requests', 
     assert.equal(f.store.cv('master').name, 'master')
   } finally { f.cleanup() }
 })
+test('messages are created, edited and deleted as files, rejecting duplicates, stale revisions and bad paths', async () => {
+  const f = fixture()
+  try {
+    assert.deepEqual((await callApi(f.store, 'GET', '/api/messages')).value, { messages: [], errors: [] })
+    const created = await callApi(f.store, 'POST', '/api/messages', { title: 'Olá, Recrutador!', content: '  Hi,\n\nThanks for reaching out.  ' })
+    assert.equal(created.status, 201)
+    assert.equal(created.value.slug, 'ola-recrutador')
+    assert.equal(readFileSync(join(f.root, 'messages/ola-recrutador.md'), 'utf8'), '---\ntitle: Olá, Recrutador!\n---\n\nHi,\n\nThanks for reaching out.\n')
+    assert.equal(created.value.content, 'Hi,\n\nThanks for reaching out.')
+    assert.equal((await callApi(f.store, 'POST', '/api/messages', { title: 'Ola recrutador', content: 'Other' })).status, 409)
+    assert.equal((await callApi(f.store, 'POST', '/api/messages', { title: '!!!', content: 'Text' })).status, 400)
+    assert.equal((await callApi(f.store, 'POST', '/api/messages', { title: 'Empty', content: '   ' })).status, 422)
+    const saved = await callApi(f.store, 'PUT', '/api/messages/ola-recrutador', { title: 'Reply: recruiter', content: 'New text', revision: created.value.revision })
+    assert.equal(saved.status, 200)
+    assert.deepEqual([saved.value.slug, saved.value.title, saved.value.content], ['ola-recrutador', 'Reply: recruiter', 'New text'])
+    assert.equal((await callApi(f.store, 'PUT', '/api/messages/ola-recrutador', { title: 'Stale', content: 'Stale', revision: created.value.revision })).status, 409)
+    assert.equal((await callApi(f.store, 'PUT', '/api/messages/missing', { title: 'Missing', content: 'Text', revision: saved.value.revision })).status, 409)
+    assert.equal((await callApi(f.store, 'DELETE', '/api/messages/ola-recrutador', { revision: created.value.revision })).status, 409)
+    assert.equal((await callApi(f.store, 'DELETE', '/api/messages/..%2Fcv%2Fmaster', { revision: saved.value.revision })).status, 400)
+    writeFileSync(join(f.root, 'messages/broken.md'), '---\ntitel: Typo\n---\n\nText\n')
+    const list = (await callApi(f.store, 'GET', '/api/messages')).value
+    assert.deepEqual([list.messages.length, list.errors[0].slug], [1, 'broken'])
+    assert.equal((await callApi(f.store, 'DELETE', '/api/messages/ola-recrutador', { revision: saved.value.revision })).status, 200)
+    assert.equal((await callApi(f.store, 'GET', '/api/messages')).value.messages.length, 0)
+    assert.equal(f.store.cv('master').name, 'master')
+  } finally { f.cleanup() }
+})

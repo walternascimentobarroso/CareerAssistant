@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Application, ApplicationError } from '../domain/applications'
+import type { Message } from '../domain/messages'
 export type LiveApplication = Application & { revision: string }
+export type LiveMessage = Message & { revision: string }
 export type Cv = { name: string; content: string; revision: string }
 export type AiProvider = { id: string; label: string; defaultModel: string; configured: boolean }
 export type AiSettings = { provider: string; model: string; providers: AiProvider[] }

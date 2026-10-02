@@ -65,6 +65,8 @@ cv/
   master.md                 complete CV
   backend.md, devops.md, security.md
 contacts/                   optional notes about people
+messages/
+  <slug>.md                 reusable message: `title` in the frontmatter, text in the body
 templates/                  application.md, job-description.md, interview-summary.md
 server/                     local API, validation and atomic file writes
 dashboard/                  React interface
@@ -152,6 +154,10 @@ Open **CVs** to edit the master, create base versions, import `.md`/`.txt` files
 
 On an application page, select a base CV and attach a copy. It becomes `applications/<slug>/cv.md`, with `cv: ./cv.md` in the application frontmatter. Changes to the base do not affect the copy. Replacing an existing CV after the interested stage requires checking explicit authorization.
 
+## Reusable messages
+
+Open **Messages** to keep the texts you send again and again (a reply to a recruiter, a follow-up, a rate answer). Each one is a card in a responsive grid with **Copy**, **Edit** and **Delete**; clicking the card opens the full text with the same actions. Deleting asks for confirmation and removes the file, so only Git can bring it back. Each message is `messages/<slug>.md`; the slug comes from the first title and does not change when the title is edited. The text is copied exactly as written, without Markdown rendering.
+
 ## Persistence and local operation
 
 The API detects stale edits using content hashes and saves files with atomic replacement. Application notes and unrelated YAML fields are preserved; timeline events are appended. No Git commits are made automatically. Writes to a CV and its application reference include rollback on ordinary failures; they are not a crash-proof transaction across two files.
@@ -160,4 +166,4 @@ Use **Reload files**, reload a CV from disk, or return focus to the window to re
 
 The backend is intended for a single local user. Production binds to `127.0.0.1` and rejects cross-origin API access. Do not expose it publicly without adding authentication and deployment hardening. `vite preview` previews only static assets; use `npm start` for the working production app.
 
-API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `DELETE /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, `POST /api/applications/:slug/cv`, `GET`/`PUT /api/settings`, `GET /api/models/:provider` and `POST /api/extract`. Mutation requests use JSON and include revisions for existing files.
+API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `DELETE /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, `POST /api/applications/:slug/cv`, `GET /api/messages`, `POST /api/messages`, `PUT /api/messages/:slug`, `DELETE /api/messages/:slug`, `GET`/`PUT /api/settings`, `GET /api/models/:provider` and `POST /api/extract`. Mutation requests use JSON and include revisions for existing files.

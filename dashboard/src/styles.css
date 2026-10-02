@@ -446,3 +446,12 @@ label.suggested input, label.suggested select { border-color: var(--accent); bac
 .markdown { overflow-wrap: anywhere; }
 .markdown pre { white-space: pre-wrap; }
 button.danger { color: #fff; background: #c62828; border-color: #c62828; }
+.messages { display: flex; flex-direction: column; gap: 16px; }
+.message-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.message-card { gap: 12px; }
+.message-open { display: flex; flex: 1; flex-direction: column; gap: 6px; padding: 0; border: 0; background: none; text-align: left; }
+.message-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.message-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.message-dialog::backdrop { background: rgb(0 0 0 / .5); }
+.message-dialog[open], .message-dialog form { display: flex; flex-direction: column; gap: 16px; }
+.message-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }

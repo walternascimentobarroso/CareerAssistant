@@ -21,6 +21,7 @@ applications/<slug>/
 cv/master.md                  the complete CV; every other CV is a subset of it
 cv/<focus>.md                 base versions (backend, devops, security)
 contacts/                     optional notes about people shared across applications
+messages/<slug>.md            reusable messages to copy and paste: frontmatter `title`, body = the text
 templates/                    files to copy when creating things
 dashboard/                    Vite + React interface
 server/                       local API and Markdown file operations
@@ -40,6 +41,7 @@ scripts/validate.ts           `npm run validate`
 | The posting | `job-description.md` |
 | What was said in an interview | `interviews/NN-kind/transcript.md` and `summary.md` |
 | Career history | `cv/master.md` |
+| Reusable messages | `messages/<slug>.md` |
 | Allowed values and field rules | `dashboard/src/domain/constants.ts` and `schema.ts` |
 
 Each fact lives in one place. Do not copy interview content into `application.md`; link or reference it. Documents and interviews are discovered from the files on disk, so never list them in the frontmatter.
@@ -146,10 +148,11 @@ Defined once in `dashboard/src/domain/constants.ts`. Never hardcode these string
 ## Rules for not losing information
 
 - Never delete an application folder, transcript, summary or timeline entry unless explicitly asked. Use `status: archived` instead of deleting. The one exception is the dashboard's delete button, which the user triggers and confirms, and which only works while `status` is `interested`.
+- Messages in `messages/` are not history: the Messages page creates, edits and deletes them, with a confirmation before deleting. Their slug comes from the first title and never changes; the body is copied as plain text, so keep it free of Markdown that would look wrong when pasted.
 - Never overwrite the notes in the body of `application.md`; append to them.
 - Never rename an application folder.
 - Keep everything as plain Markdown text. No binary files, no generated data files.
-- After any change under `applications/`, run `npm run validate` and fix what it reports.
+- After any change under `applications/` or `messages/`, run `npm run validate` and fix what it reports.
 - Do not commit unless asked. Git history is the audit trail, so keep commits small and descriptive.
 
 ## Dashboard code
