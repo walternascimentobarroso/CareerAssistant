@@ -86,7 +86,7 @@ tags: [php, symfony, backend]  # lowercase technologies and keywords
 
 timeline:
   - date: 2026-10-02
-    type: applied              # free snake_case label: applied, interview, offer, contact, rejected...
+    type: applied              # snake_case label; the dashboard offers TIMELINE_EVENT_TYPES from constants.ts
     description: Application submitted
 ---
 ```

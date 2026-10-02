@@ -104,7 +104,7 @@ Put the raw transcript in `transcript.md` next to it, then add a `timeline` entr
 - **Tasks**: derived from each application's `next_action`, grouped into Overdue, Today, Upcoming and No date. There is no separate task list to maintain.
 - **Application page**: rate, contact, next action, documents, interviews, timeline and notes. Document links render the Markdown files.
 
-Move cards by dragging them between columns or using the status selector. Each move saves the status and appends a timeline event; the first move to Applied also fills `applied_at`. Closing an application lets you retain or remove the pending next action.
+Move cards by dragging them between columns. Each move saves the status and appends a timeline event; the first move to Applied also fills `applied_at`. Closing an application lets you retain or remove the pending next action.
 
 On an application page, **Edit application** opens a form for the frontmatter fields (job, rate, contact, next action, tags). **Add event** appends to the timeline and **Add note** appends to the notes; past events and existing notes are never rewritten from the browser. An application still in **Interested** can be deleted from its page (red button, with confirmation); this removes its folder from disk, so only Git can bring it back, and only if it was committed. Later stages are closed with Rejected or Archived instead. **Edit job description** (or **Add job description**) opens a form with one field per section of `job-description.md`; content the form has no field for is kept under "Other content". Applications with invalid Markdown are hidden and listed in a banner at the top with the reason.
 

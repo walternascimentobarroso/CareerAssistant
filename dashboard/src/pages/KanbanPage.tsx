@@ -22,7 +22,7 @@ export function KanbanPage() {
     finally { setPending(null) }
   }
   return <>
-    <p aria-live="polite">{pending ? 'Saving status…' : 'Drag a card to a column or use its status selector.'}</p>
+    <p aria-live="polite">{pending ? 'Saving status…' : 'Drag a card to a column.'}</p>
     {error && <p role="alert">{error}</p>}
     <div className="board">
       {STATUSES.map(status => {
@@ -31,9 +31,6 @@ export function KanbanPage() {
           <h2>{STATUS_LABELS[status]} <span className="count">{inColumn.length}</span></h2>
           {inColumn.map(a => <div key={a.slug} draggable={!pending} onDragStart={e => { setDragged(a.slug); e.dataTransfer.setData('text/plain', a.slug); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragged(null)}>
             <ApplicationCard application={a} />
-            <select aria-label={`Status for ${a.data.company}`} value={a.data.status} disabled={!!pending} onChange={e => void move(a.slug, e.target.value as Status)}>
-              {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-            </select>
           </div>)}
         </section>
       })}

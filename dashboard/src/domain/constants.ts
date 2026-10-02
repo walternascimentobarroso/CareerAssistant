@@ -53,6 +53,9 @@ export const CURRENCIES = ['EUR', 'USD', 'BRL', 'GBP', 'CHF'] as const
 
 export const RATE_PERIODS = ['hour', 'day', 'month', 'year'] as const
 
+/** Offered in the Add event form; the schema still accepts any label written by hand. */
+export const TIMELINE_EVENT_TYPES = ['contact', 'interview', 'follow_up', 'offer', 'applied', 'rejected', 'other'] as const
+
 export const TASK_GROUPS = ['overdue', 'today', 'upcoming', 'no_date'] as const
 
 export type TaskGroup = (typeof TASK_GROUPS)[number]

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { request, useApplications, type LiveApplication } from '../data/loadApplications'
-import { todayIsoDate } from '../domain/format'
+import { TIMELINE_EVENT_TYPES } from '../domain/constants'
+import { humanize, todayIsoDate } from '../domain/format'
 
 export function AddTimelineEvent({ application }: { application: LiveApplication }) {
   const [date, setDate] = useState(todayIsoDate)
@@ -12,7 +13,7 @@ export function AddTimelineEvent({ application }: { application: LiveApplication
   async function add() {
     setBusy(true); setMessage('')
     try {
-      const event = { date, type: type.trim().toLowerCase().replace(/\s+/g, '_'), description: description.trim() }
+      const event = { date, type, description: description.trim() }
       await request(`/applications/${application.slug}`, 'PATCH', { revision: application.revision, fields: {}, event })
       await reload(); setType(''); setDescription('')
     } catch (e) { setMessage((e as Error).message) }
@@ -20,7 +21,10 @@ export function AddTimelineEvent({ application }: { application: LiveApplication
   }
   return <form className="inline-form" onSubmit={e => { e.preventDefault(); void add() }}>
     <label>Date<input type="date" required value={date} disabled={busy} onChange={e => setDate(e.target.value)} /></label>
-    <label>Type<input required value={type} disabled={busy} placeholder="interview, contact, offer…" onChange={e => setType(e.target.value)} /></label>
+    <label>Type<select required value={type} disabled={busy} onChange={e => setType(e.target.value)}>
+      <option value="">Select…</option>
+      {TIMELINE_EVENT_TYPES.map(option => <option key={option} value={option}>{humanize(option)}</option>)}
+    </select></label>
     <label className="grow">What happened<input required value={description} disabled={busy} onChange={e => setDescription(e.target.value)} /></label>
     <button disabled={busy}>{busy ? 'Saving…' : 'Add event'}</button>
     <p role="status">{message}</p>
