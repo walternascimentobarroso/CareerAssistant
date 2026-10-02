@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { STATUSES } from '../dashboard/src/domain/constants'
-import { Store, StoreError } from './store'
+import { timelineEntrySchema } from '../dashboard/src/domain/schema'
+import { EDITABLE_FIELDS, Store, StoreError } from './store'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().startsWith(v))
@@ -9,6 +10,11 @@ const content = z.string().min(1).max(1_000_000)
 const statusInput = z.strictObject({ revision: hash, status: z.enum(STATUSES), date, keepNextAction: z.boolean().optional() })
 const cvInput = z.strictObject({ content, revision: hash })
 const createInput = z.strictObject({ name: z.string(), content })
+const fields = z.partialRecord(z.enum(EDITABLE_FIELDS), z.unknown())
+const createApplicationInput = z.strictObject({ fields, applied: z.boolean(), date, jobPosting: content.optional() })
+const updateApplicationInput = z.strictObject({ revision: hash, fields, event: timelineEntrySchema.optional() })
+const noteInput = z.strictObject({ revision: hash, note: z.string().trim().min(1).max(100_000) })
+const jobDescriptionInput = z.strictObject({ content, revision: hash.nullable() })
 const attachInput = z.strictObject({ name: z.string(), revision: hash, sourceRevision: hash, cvRevision: hash.nullable(), allowHistoricalEdit: z.boolean().optional() })
 
 async function body(req: IncomingMessage) {
@@ -37,6 +43,10 @@ export function api(store: Store) {
       if (req.method !== 'GET' && !req.headers['content-type']?.startsWith('application/json')) throw new StoreError(415, 'Use application/json')
       if (collection === 'applications') {
         if (req.method === 'GET' && !action) return send(200, id ? store.application(id) : store.applications())
+        if (req.method === 'POST' && !id) return send(201, store.createApplication(createApplicationInput.parse(await body(req))))
+        if (id && !action && req.method === 'PATCH') return send(200, store.updateApplication(id, updateApplicationInput.parse(await body(req))))
+        if (id && action === 'notes' && req.method === 'POST') return send(200, store.appendNote(id, noteInput.parse(await body(req))))
+        if (id && action === 'job-description' && req.method === 'PUT') return send(200, store.saveJobDescription(id, jobDescriptionInput.parse(await body(req))))
         if (id && action === 'status' && req.method === 'PATCH') return send(200, store.status(id, statusInput.parse(await body(req))))
         if (id && action === 'cv' && req.method === 'POST') return send(200, store.attachCv(id, attachInput.parse(await body(req))))
       }

@@ -1,6 +1,7 @@
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { useApplications } from '../data/loadApplications'
+import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
 
 export function DocumentPage() {
   const { findApplication } = useApplications()
@@ -17,6 +18,7 @@ export function DocumentPage() {
       <p className="muted">
         applications/{application.slug}/{path}
       </p>
+      {path === JOB_DESCRIPTION_FILE && <Link to={`/applications/${application.slug}/job-description`}>Edit job description</Link>}
       <div className="markdown">
         <Markdown>{content}</Markdown>
       </div>

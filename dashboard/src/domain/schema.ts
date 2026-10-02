@@ -31,7 +31,7 @@ const nextActionSchema = z.strictObject({
   description: z.string().min(1),
 })
 
-const timelineEntrySchema = z.strictObject({
+export const timelineEntrySchema = z.strictObject({
   date: isoDate,
   type: z.string().min(1),
   description: z.string().min(1),
@@ -58,3 +58,4 @@ export const applicationSchema = z.strictObject({
 export type ApplicationData = z.infer<typeof applicationSchema>
 export type Rate = z.infer<typeof rateSchema>
 export type NextAction = z.infer<typeof nextActionSchema>
+export type TimelineEntry = z.infer<typeof timelineEntrySchema>

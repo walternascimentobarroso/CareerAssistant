@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
+import { confirmDiscard, useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, type Cv } from '../data/loadApplications'
 
 export function CvPage() {
@@ -12,17 +13,9 @@ export function CvPage() {
   const [dirty, setDirty] = useState(false)
   const load = async () => setCvs(await request<Cv[]>('/cvs'))
   useEffect(() => { void load().catch(e => setMessage(e.message)) }, [])
-  useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault() }
-    const navigate = (e: MouseEvent) => {
-      if (dirty && e.target instanceof Element && e.target.closest('a[href]') && !window.confirm('Discard unsaved CV changes?')) { e.preventDefault(); e.stopPropagation() }
-    }
-    window.addEventListener('beforeunload', warn)
-    document.addEventListener('click', navigate, true)
-    return () => { window.removeEventListener('beforeunload', warn); document.removeEventListener('click', navigate, true) }
-  }, [dirty])
+  useUnsavedGuard(dirty)
   function choose(cv: Cv | null) {
-    if (dirty && !window.confirm('Discard unsaved CV changes?')) return
+    if (!confirmDiscard(dirty)) return
     setSelected(cv); setName(cv?.name ?? ''); setContent(cv?.content ?? ''); setDirty(false); setMessage('')
   }
   async function save() {

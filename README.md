@@ -77,6 +77,8 @@ The full field reference for `application.md` is in [CLAUDE.md](CLAUDE.md#applic
 
 ## Adding an application
 
+In the dashboard, open **New application**, fill in the form and paste the posting text. The folder name is derived from company and role and never changes. To do the same by hand:
+
 ```bash
 mkdir applications/acme-senior-backend-engineer
 cp templates/application.md applications/acme-senior-backend-engineer/application.md
@@ -100,7 +102,9 @@ Put the raw transcript in `transcript.md` next to it, then add a `timeline` entr
 - **Tasks**: derived from each application's `next_action`, grouped into Overdue, Today, Upcoming and No date. There is no separate task list to maintain.
 - **Application page**: rate, contact, next action, documents, interviews, timeline and notes. Document links render the Markdown files.
 
-Move cards by dragging them between columns or using the status selector. Each move saves the status and appends a timeline event. Closing an application lets you retain or remove the pending next action. Task completion can still be recorded by editing `application.md`. Applications with invalid Markdown are hidden and listed in a banner at the top with the reason.
+Move cards by dragging them between columns or using the status selector. Each move saves the status and appends a timeline event; the first move to Applied also fills `applied_at`. Closing an application lets you retain or remove the pending next action.
+
+On an application page, **Edit application** opens a form for the frontmatter fields (job, rate, contact, next action, tags). **Add event** appends to the timeline and **Add note** appends to the notes; past events and existing notes are never rewritten from the browser. **Edit job description** (or **Add job description**) opens a form with one field per section of `job-description.md`; content the form has no field for is kept under "Other content". Applications with invalid Markdown are hidden and listed in a banner at the top with the reason.
 
 ## Validating
 
@@ -143,4 +147,4 @@ Use **Reload files**, reload a CV from disk, or return focus to the window to re
 
 The backend is intended for a single local user. Production binds to `127.0.0.1` and rejects cross-origin API access. Do not expose it publicly without adding authentication and deployment hardening. `vite preview` previews only static assets; use `npm start` for the working production app.
 
-API routes: `GET /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, and `POST /api/applications/:slug/cv`. Mutation requests use JSON and include revisions for existing files.
+API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, and `POST /api/applications/:slug/cv`. Mutation requests use JSON and include revisions for existing files.

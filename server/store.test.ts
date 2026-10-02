@@ -121,3 +121,85 @@ test('empty and flow timelines remain valid when appending events', () => {
     }
   } finally { f.cleanup() }
 })
+test('create builds a valid application with job description and refuses duplicates', () => {
+  const f = fixture()
+  try {
+    const input = { fields: { company: 'Açme Inc.', role: 'Senior Dev', job_url: 'https://example.com/job', location: null, tags: ['php'] }, applied: true, date: '2026-10-02', jobPosting: 'We need a dev.\n\n## About us\nNice.' }
+    const a = f.store.createApplication(input)
+    assert.equal(a.slug, 'acme-inc-senior-dev')
+    assert.equal(a.data.status, 'applied')
+    assert.equal(a.data.applied_at, '2026-10-02')
+    assert.equal(a.data.timeline[0].type, 'applied')
+    assert.equal(a.data.location, undefined)
+    assert.ok(a.documents['job-description.md'].includes('Source: https://example.com/job'))
+    assert.ok(a.documents['job-description.md'].includes('## About us'))
+    assert.throws(() => f.store.createApplication(input), (e: unknown) => e instanceof StoreError && e.status === 409)
+    assert.throws(() => f.store.createApplication({ fields: { company: 'Solo' }, applied: false, date: '2026-10-02' }))
+    assert.equal(f.store.applications().applications.length, 2)
+    assert.equal(f.store.createApplication({ fields: { company: 'Beta', role: 'Dev' }, applied: false, date: '2026-10-02' }).data.timeline[0].type, 'created')
+  } finally { f.cleanup() }
+})
+test('update edits only changed fields as block YAML, appends events and rejects stale or invalid edits', () => {
+  const f = fixture()
+  try {
+    const raw = '---\ncompany: Acme # keep this comment\nrole: Backend\nstatus: interested\nlocation: Remote\nrate:\n  currency: EUR\n  requested: 250\n  period: day\n\n# keep block comment\nnext_action:\n  type: apply\n  description: Apply now\ntags: [php]\ntimeline:\n  - date: 2026-10-01\n    type: created\n    description: Created\n---\n\n# Notes\n  Keep spacing.  \n'
+    writeFileSync(join(f.root, 'applications/acme-backend/application.md'), raw)
+    const a = f.store.application('acme-backend')
+    const unchanged = { company: 'Acme', role: 'Backend', location: 'Remote', rate: { requested: 250, currency: 'EUR', period: 'day' }, tags: ['php'] }
+    assert.equal(f.store.updateApplication(a.slug, { revision: a.revision, fields: unchanged }).revision, a.revision)
+    const changed = f.store.updateApplication(a.slug, {
+      revision: a.revision,
+      fields: { ...unchanged, location: null, rate: { requested: 300, currency: 'EUR', period: 'day' }, contact: { name: 'Ana' }, tags: ['php', 'symfony'] },
+      event: { date: '2026-10-02', type: 'contact', description: 'Recruiter called' },
+    })
+    const saved = f.store.read('applications/acme-backend/application.md')
+    assert.equal(saved.split('---\n')[2], raw.split('---\n')[2])
+    assert.ok(saved.includes('# keep this comment') && saved.includes('# keep block comment'))
+    assert.ok(saved.includes('rate:\n  requested: 300\n  currency: EUR\n  period: day\n'))
+    assert.ok(saved.includes('contact:\n  name: Ana'))
+    assert.ok(!saved.includes('{') && !saved.includes('location'))
+    assert.deepEqual(changed.data.tags, ['php', 'symfony'])
+    assert.equal(changed.data.next_action?.description, 'Apply now')
+    assert.deepEqual(changed.data.timeline.map(e => e.type), ['created', 'contact'])
+    assert.throws(() => f.store.updateApplication(a.slug, { revision: a.revision, fields: { role: 'Stale' } }), (e: unknown) => e instanceof StoreError && e.status === 409)
+    assert.throws(() => f.store.updateApplication(a.slug, { revision: changed.revision, fields: { company: null } }))
+    assert.throws(() => f.store.updateApplication(a.slug, { revision: changed.revision, fields: { rate: { requested: 300 } } }))
+    assert.equal(f.store.read('applications/acme-backend/application.md'), saved)
+  } finally { f.cleanup() }
+})
+test('moving to applied fills applied_at once, notes are append-only, job description needs its revision', () => {
+  const f = fixture()
+  try {
+    let a = f.store.application('acme-backend')
+    a = f.store.status(a.slug, { revision: a.revision, status: 'applied', date: '2026-10-02' })
+    assert.equal(a.data.applied_at, '2026-10-02')
+    a = f.store.status(a.slug, { revision: a.revision, status: 'interested', date: '2026-10-03' })
+    a = f.store.status(a.slug, { revision: a.revision, status: 'applied', date: '2026-10-04' })
+    assert.equal(a.data.applied_at, '2026-10-02')
+    const before = f.store.read('applications/acme-backend/application.md')
+    assert.throws(() => f.store.appendNote(a.slug, { revision: revision('old'), note: 'Lost' }), (e: unknown) => e instanceof StoreError && e.status === 409)
+    a = f.store.appendNote(a.slug, { revision: a.revision, note: 'Called back.\nSecond line.' })
+    assert.equal(f.store.read('applications/acme-backend/application.md'), before + 'Called back.\r\nSecond line.\r\n')
+    a = f.store.saveJobDescription(a.slug, { content: '# Job Description\n', revision: null })
+    assert.throws(() => f.store.saveJobDescription(a.slug, { content: 'Overwrite', revision: null }), (e: unknown) => e instanceof StoreError && e.status === 409)
+    a = f.store.saveJobDescription(a.slug, { content: '# Job Description\n\nUpdated\n', revision: revision(a.documents['job-description.md']) })
+    assert.ok(a.documents['job-description.md'].includes('Updated'))
+  } finally { f.cleanup() }
+})
+test('API creates, edits and annotates applications with validation', async () => {
+  const f = fixture()
+  try {
+    assert.equal((await callApi(f.store, 'POST', '/api/applications', { fields: { company: 'Beta', role: 'Dev', status: 'offer' }, applied: false, date: '2026-10-02' })).status, 422)
+    assert.equal((await callApi(f.store, 'POST', '/api/applications', { fields: { company: 'Beta', role: 'Dev', rate: { requested: 1 } }, applied: false, date: '2026-10-02' })).status, 422)
+    const created = await callApi(f.store, 'POST', '/api/applications', { fields: { company: 'Beta', role: 'Dev' }, applied: false, date: '2026-10-02' })
+    assert.equal(created.status, 201)
+    const { slug, revision: current } = created.value
+    assert.equal((await callApi(f.store, 'PATCH', `/api/applications/${slug}`, { revision: current, fields: { priority: 'urgent' } })).status, 422)
+    const edited = await callApi(f.store, 'PATCH', `/api/applications/${slug}`, { revision: current, fields: { priority: 'high' } })
+    assert.equal(edited.value.data.priority, 'high')
+    assert.equal((await callApi(f.store, 'POST', `/api/applications/${slug}/notes`, { revision: edited.value.revision, note: '  ' })).status, 422)
+    const noted = await callApi(f.store, 'POST', `/api/applications/${slug}/notes`, { revision: edited.value.revision, note: 'Remember this' })
+    assert.ok(noted.value.notes.endsWith('Remember this'))
+    assert.equal((await callApi(f.store, 'PUT', `/api/applications/${slug}/job-description`, { content: '# Job Description\n', revision: null })).status, 200)
+  } finally { f.cleanup() }
+})

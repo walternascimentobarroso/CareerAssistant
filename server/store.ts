@@ -1,16 +1,28 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { isNode, isSeq, parseDocument, stringify } from 'yaml'
 import { buildApplications } from '../dashboard/src/domain/applications'
-import { applicationSchema } from '../dashboard/src/domain/schema'
-import { CLOSED_STATUSES, STATUSES, type Status } from '../dashboard/src/domain/constants'
+import { slugify } from '../dashboard/src/domain/format'
+import { JOB_DESCRIPTION_FILE, emptyJobDescription, serializeJobDescription } from '../dashboard/src/domain/jobDescription'
+import { applicationSchema, type TimelineEntry } from '../dashboard/src/domain/schema'
+import { APPLIED_STATUS, CLOSED_STATUSES, INITIAL_STATUS, STATUSES, type Status } from '../dashboard/src/domain/constants'
 
 export class StoreError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 export const revision = (content: string) => createHash('sha256').update(content).digest('hex')
 const identifier = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+// status, timeline and cv have their own operations so their side effects are never skipped.
+export const EDITABLE_FIELDS = ['company', 'role', 'priority', 'type', 'location', 'applied_at', 'job_url', 'rate', 'contact', 'next_action', 'tags'] as const
+export type ApplicationFields = Partial<Record<(typeof EDITABLE_FIELDS)[number], unknown>>
+type YamlDocument = ReturnType<typeof parseDocument>
+
+function appendTimelineEntry(doc: YamlDocument, entry: TimelineEntry) {
+  if (doc.get('timeline')) doc.addIn(['timeline'], entry)
+  else doc.set('timeline', [entry])
+}
 
 export class Store {
   constructor(public root: string) { this.root = resolve(root) }
@@ -66,7 +78,7 @@ export class Store {
     if (!a) throw new StoreError(404, 'Application missing or invalid')
     return a
   }
-  editApplication(slug: string, expected: string, edit: (doc: ReturnType<typeof parseDocument>) => void) {
+  editApplication(slug: string, expected: string, edit: (doc: YamlDocument) => void) {
     const relative = `applications/${this.id(slug)}/application.md`
     const raw = this.read(relative)
     if (revision(raw) !== expected) throw new StoreError(409, 'File changed. Reload before saving.')
@@ -82,6 +94,8 @@ export class Store {
     const before = original.toJS() as Record<string, unknown>
     const after = doc.toJS() as Record<string, unknown>
     const patches: { start: number; end: number; text: string }[] = []
+    // New keys go after every patch so they cannot land inside a collection patched at the end of the document.
+    const additions: string[] = []
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (JSON.stringify(before[key]) === JSON.stringify(after[key])) continue
       const node = original.get(key, true)
@@ -95,24 +109,33 @@ export class Store {
           const lineStart = match[2].lastIndexOf('\n', firstOffset - 1) + 1
           const indentation = match[2].slice(lineStart, firstOffset).match(/^ */)?.[0] ?? '  '
           const addition = stringify(next.slice(previous.length)).trimEnd().split('\n').map(line => indentation + line).join(eol)
-          patches.push({ start: range[1], end: range[1], text: eol + addition + eol })
+          // A block sequence already ends with a line break unless it is the last line of the frontmatter.
+          const lineBreak = /\r?\n$/.test(match[2].slice(0, range[1])) ? '' : eol
+          patches.push({ start: range[1], end: range[1], text: lineBreak + addition + eol })
           continue
         }
       }
-      if (range && key in after) {
-        const serialized = typeof after[key] === 'object' ? JSON.stringify(after[key]) : stringify(after[key]).trimEnd().replace(/\n/g, eol)
-        patches.push({ start: range[0], end: range[1], text: serialized })
-      } else if (range) {
+      const keyStart = () => {
         const keyNode = original.contents && 'items' in original.contents ? original.contents.items.find(item => item && typeof item === 'object' && 'key' in item && String(item.key) === key) : undefined
         const keyRange = keyNode && 'key' in keyNode && keyNode.key && typeof keyNode.key === 'object' && 'range' in keyNode.key ? keyNode.key.range : null
         if (!keyRange) throw new StoreError(422, 'Unsupported YAML layout')
-        patches.push({ start: keyRange[0], end: range[2], text: '' })
+        return keyRange[0]
+      }
+      if (range && key in after && typeof after[key] === 'object') {
+        // Block collections end after their line break; keep it so the next key stays on its own line.
+        const lineBreak = /\r?\n$/.exec(match[2].slice(range[0], range[1]))?.[0] ?? ''
+        patches.push({ start: keyStart(), end: range[1], text: stringify({ [key]: after[key] }).trimEnd().replace(/\n/g, eol) + lineBreak })
+      } else if (range && key in after) {
+        patches.push({ start: range[0], end: range[1], text: stringify(after[key]).trimEnd().replace(/\n/g, eol) })
+      } else if (range) {
+        patches.push({ start: keyStart(), end: range[2], text: '' })
       } else {
-        patches.push({ start: match[2].length, end: match[2].length, text: eol + stringify({ [key]: after[key] }).trimEnd().replace(/\n/g, eol) })
+        additions.push(stringify({ [key]: after[key] }).trimEnd().replace(/\n/g, eol))
       }
     }
     let yaml = match[2]
     for (const patch of patches.sort((a, b) => b.start - a.start)) yaml = yaml.slice(0, patch.start) + patch.text + yaml.slice(patch.end)
+    for (const addition of additions) yaml = yaml.replace(/(\r?\n)?$/, eol) + addition
     applicationSchema.parse(parseDocument(yaml).toJS())
     this.write(relative, match[1] + yaml + match[3] + match[4], expected)
     return this.application(slug)
@@ -124,12 +147,61 @@ export class Store {
     if (a.data.status === input.status) return a
     return this.editApplication(slug, input.revision, doc => {
       doc.set('status', input.status)
-      const timeline = doc.get('timeline')
-      const entry = { date: input.date, type: 'status_changed', description: `Status changed from ${a.data.status} to ${input.status}` }
-      if (timeline) doc.addIn(['timeline'], entry)
-      else doc.set('timeline', [entry])
+      if (input.status === APPLIED_STATUS && !a.data.applied_at) doc.set('applied_at', input.date)
+      appendTimelineEntry(doc, { date: input.date, type: 'status_changed', description: `Status changed from ${a.data.status} to ${input.status}` })
       if (CLOSED_STATUSES.includes(input.status) && !input.keepNextAction) doc.delete('next_action')
     })
+  }
+  createApplication(input: { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string }) {
+    const fields = Object.fromEntries(Object.entries(input.fields).filter(([, value]) => value !== null))
+    const slug = slugify(`${fields.company ?? ''} ${fields.role ?? ''}`)
+    if (!slug) throw new StoreError(400, 'Company and role are required')
+    const directory = this.path(`applications/${slug}`)
+    if (existsSync(directory)) throw new StoreError(409, `Application ${slug} already exists`)
+    const firstEvent = input.applied ? { type: 'applied', description: 'Application submitted' } : { type: 'created', description: 'Application created' }
+    const data = applicationSchema.parse({
+      status: input.applied ? APPLIED_STATUS : INITIAL_STATUS,
+      ...(input.applied && { applied_at: input.date }),
+      ...fields,
+      timeline: [{ date: input.date, ...firstEvent }],
+    })
+    const { company, role, status, tags, timeline, ...optional } = data
+    mkdirSync(directory)
+    try {
+      this.write(`applications/${slug}/application.md`, `---\n${stringify({ company, role, status, ...optional, tags, timeline })}---\n\n## Notes\n`, null)
+      if (input.jobPosting) {
+        const description = { ...emptyJobDescription(), source: data.job_url ?? '', capturedOn: input.date, originalText: input.jobPosting }
+        this.write(`applications/${slug}/${JOB_DESCRIPTION_FILE}`, serializeJobDescription(description), null)
+      }
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true })
+      throw error
+    }
+    return this.application(slug)
+  }
+  updateApplication(slug: string, input: { revision: string; fields: ApplicationFields; event?: TimelineEntry }) {
+    return this.editApplication(slug, input.revision, doc => {
+      const current = doc.toJS() as Record<string, unknown>
+      for (const [key, value] of Object.entries(input.fields)) {
+        if (value === null) doc.delete(key)
+        // Untouched fields keep their original bytes, including key order and comments.
+        else if (!isDeepStrictEqual(current[key], value)) doc.set(key, doc.createNode(value))
+      }
+      if (input.event) appendTimelineEntry(doc, input.event)
+    })
+  }
+  appendNote(slug: string, input: { revision: string; note: string }) {
+    const relative = `applications/${this.id(slug)}/application.md`
+    const raw = this.read(relative)
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n'
+    const separator = raw.endsWith(eol + eol) ? '' : raw.endsWith(eol) ? eol : eol + eol
+    this.write(relative, raw + separator + input.note.trim().replace(/\r?\n/g, eol) + eol, input.revision)
+    return this.application(slug)
+  }
+  saveJobDescription(slug: string, input: { content: string; revision: string | null }) {
+    this.application(slug)
+    this.write(`applications/${slug}/${JOB_DESCRIPTION_FILE}`, input.content, input.revision)
+    return this.application(slug)
   }
   cvs() {
     return readdirSync(this.path('cv'), { withFileTypes: true }).filter(f => f.isFile() && f.name.endsWith('.md')).map(f => this.cv(f.name.slice(0, -3)))

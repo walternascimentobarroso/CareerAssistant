@@ -158,7 +158,9 @@ Defined once in `dashboard/src/domain/constants.ts`. Never hardcode these string
 - The dashboard writes only through `server/`; Markdown remains the only source of truth. Never add a database.
 - `npm run dev` serves the dashboard and API together. `npm run build && npm start` serves production locally. `npm test` checks persistence safeguards.
 - API writes require the current content hash. Reject stale edits rather than overwriting external changes.
-- Status changes append a timeline event; same-status requests are no-ops. Closing a candidature removes next_action unless the user chooses to retain it.
+- Applications are created and edited through forms. Field edits rewrite only the keys that changed; `status`, `timeline` and `cv` are not editable fields and go through their own operations.
+- From the browser the timeline and the notes are append-only, and the job description form keeps content it has no field for.
+- Status changes append a timeline event and the first move to `applied` fills `applied_at`; same-status requests are no-ops. Closing a candidature removes next_action unless the user chooses to retain it.
 - CV imports accept Markdown/plain text. Base CV attachment creates an independent application copy. Replacing an existing historical CV requires explicit authorization.
 - Preserve notes byte-for-byte, use atomic replacement, and reject paths or symlinks outside the allowed document locations.
 - The backend is for local use and binds to loopback; do not expose it publicly.

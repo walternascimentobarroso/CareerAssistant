@@ -4,7 +4,10 @@ import { HashRouter, Route, Routes } from 'react-router'
 import { Layout } from './components/Layout'
 import { ApplicationPage } from './pages/ApplicationPage'
 import { DocumentPage } from './pages/DocumentPage'
+import { EditApplicationPage } from './pages/EditApplicationPage'
+import { JobDescriptionPage } from './pages/JobDescriptionPage'
 import { KanbanPage } from './pages/KanbanPage'
+import { NewApplicationPage } from './pages/NewApplicationPage'
 import { TasksPage } from './pages/TasksPage'
 
 export function App() {
@@ -15,7 +18,10 @@ export function App() {
           <Route index element={<KanbanPage />} />
           <Route path="cvs" element={<CvPage />} />
           <Route path="tasks" element={<TasksPage />} />
+          <Route path="new" element={<NewApplicationPage />} />
           <Route path="applications/:slug" element={<ApplicationPage />} />
+          <Route path="applications/:slug/edit" element={<EditApplicationPage />} />
+          <Route path="applications/:slug/job-description" element={<JobDescriptionPage />} />
           <Route path="applications/:slug/doc/*" element={<DocumentPage />} />
         </Route>
       </Routes>

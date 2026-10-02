@@ -8,6 +8,10 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
   if (!response.ok) throw new Error(value.error ?? 'Request failed')
   return value as T
 }
+export async function revisionOf(content: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content))
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
 type State = { applications: LiveApplication[]; errors: ApplicationError[]; loading: boolean; error: string; reload: () => Promise<void>; findApplication: (slug: string | undefined) => LiveApplication | undefined }
 const Context = createContext<State | null>(null)
 export function ApplicationsProvider({ children }: { children: ReactNode }) {

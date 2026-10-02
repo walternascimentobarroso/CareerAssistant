@@ -428,3 +428,13 @@ textarea { width: 100%; resize: vertical; font-family: monospace; }
 .drop-target { outline: 1px dashed var(--accent); min-height: 160px; }
 [role="alert"] { color: var(--overdue); padding: 12px 0; }
 @media (max-width: 800px) { .cv-columns { grid-template-columns: 1fr; } }
+fieldset { border: 1px solid var(--border); border-radius: 5px; padding: 12px 16px 16px; margin: 0; }
+legend { font-weight: 600; padding: 0 6px; }
+.application-form { display: flex; flex-direction: column; gap: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; align-items: start; }
+.field-error { color: var(--overdue); font-size: .85em; }
+input[aria-invalid="true"] { border-color: var(--overdue); }
+.inline-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin-top: 12px; }
+.inline-form .grow { flex: 1 1 240px; }
+.inline-form p { flex-basis: 100%; margin: 0; }
+.note-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }

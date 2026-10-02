@@ -12,6 +12,10 @@ export const STATUSES = [
 
 export type Status = (typeof STATUSES)[number]
 
+export const INITIAL_STATUS: Status = 'interested'
+
+export const APPLIED_STATUS: Status = 'applied'
+
 export const STATUS_LABELS: Record<Status, string> = {
   interested: 'Interested',
   applied: 'Applied',

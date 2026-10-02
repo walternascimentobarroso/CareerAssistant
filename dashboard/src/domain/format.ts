@@ -8,6 +8,15 @@ export function humanize(identifier: string) {
   return capitalize(identifier.replaceAll('_', ' '))
 }
 
+export function slugify(text: string) {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 export function formatDate(isoDate: string) {
   const [year, month, day] = isoDate.split('-')
   return `${day}/${month}/${year}`

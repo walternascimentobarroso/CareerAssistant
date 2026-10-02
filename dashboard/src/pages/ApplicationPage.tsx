@@ -1,3 +1,5 @@
+import { AddNote } from '../components/AddNote'
+import { AddTimelineEvent } from '../components/AddTimelineEvent'
 import { AttachCv } from '../components/AttachCv'
 import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
@@ -6,11 +8,12 @@ import { Badges } from '../components/Badges'
 import { NextActionBox } from '../components/NextActionBox'
 import { useApplications } from '../data/loadApplications'
 import type { Application } from '../domain/applications'
+import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
 import { STATUS_LABELS } from '../domain/constants'
 import { formatDate, formatRate, humanize } from '../domain/format'
 
 const TOP_LEVEL_DOCUMENTS = [
-  { path: 'job-description.md', label: 'Job Description' },
+  { path: JOB_DESCRIPTION_FILE, label: 'Job Description' },
   { path: 'cv.md', label: 'CV sent' },
 ]
 
@@ -40,6 +43,7 @@ export function ApplicationPage() {
               Job posting ↗
             </a>
           )}
+          <Link to={`/applications/${application.slug}/edit`}>Edit application</Link>
         </div>
       </header>
 
@@ -69,6 +73,9 @@ export function ApplicationPage() {
 
         <Section title="Documents">
           <DocumentLinks application={application} />
+          {!(JOB_DESCRIPTION_FILE in application.documents) && (
+            <Link to={`/applications/${application.slug}/job-description`}>Add job description</Link>
+          )}
           <AttachCv application={application} />
         </Section>
 
@@ -88,6 +95,7 @@ export function ApplicationPage() {
             </li>
           ))}
         </ol>
+        <AddTimelineEvent application={application} />
       </Section>
 
       {data.tags.length > 0 && (
@@ -102,13 +110,14 @@ export function ApplicationPage() {
         </Section>
       )}
 
-      {notes && (
-        <Section title="Notes">
+      <Section title="Notes">
+        {notes && (
           <div className="markdown">
             <Markdown>{notes}</Markdown>
           </div>
-        </Section>
-      )}
+        )}
+        <AddNote application={application} />
+      </Section>
     </article>
   )
 }
