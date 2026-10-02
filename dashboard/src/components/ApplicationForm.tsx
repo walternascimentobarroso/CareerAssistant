@@ -1,5 +1,6 @@
 import type { InputHTMLAttributes, ReactNode } from 'react'
-import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRIORITIES, PRIORITY_LABELS, RATE_PERIODS } from '../domain/constants'
+import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, CURRENCIES, PRIORITIES, PRIORITY_LABELS, RATE_PERIODS } from '../domain/constants'
+import { currencyLabel } from '../domain/format'
 import type { ApplicationFormValues, FieldErrors } from '../domain/applicationForm'
 
 type TextKey = { [K in keyof ApplicationFormValues]: ApplicationFormValues[K] extends string ? K : never }[keyof ApplicationFormValues]
@@ -20,6 +21,8 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
       </select>
     </Field>
   )
+  // A currency already in the file or proposed by AI stays selectable even when it is not in the list.
+  const currencies = !value.rateCurrency || CURRENCIES.some(code => code === value.rateCurrency) ? CURRENCIES : [...CURRENCIES, value.rateCurrency]
   return <>
     <fieldset>
       <legend>Job</legend>
@@ -39,7 +42,7 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
       <div className="form-grid">
         {input('rateRequested', 'Requested', 'rate.requested', { type: 'number', min: 0 })}
         {input('rateMinimum', 'Minimum', 'rate.minimum', { type: 'number', min: 0 })}
-        {input('rateCurrency', 'Currency', 'rate.currency', { placeholder: 'EUR', maxLength: 3 })}
+        {select('rateCurrency', 'Currency', 'rate.currency', currencies, Object.fromEntries(currencies.map(code => [code, currencyLabel(code)])), true)}
         {select('ratePeriod', 'Per', 'rate.period', RATE_PERIODS, null, false)}
         <label><input type="checkbox" checked={value.rateVat} disabled={disabled} onChange={e => set({ rateVat: e.target.checked })} /> Plus VAT</label>
       </div>

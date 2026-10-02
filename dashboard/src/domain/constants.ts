@@ -48,6 +48,9 @@ export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   contract: 'Contract',
 }
 
+/** Offered in the form; the schema still accepts any 3-letter code written by hand. */
+export const CURRENCIES = ['EUR', 'USD', 'BRL', 'GBP', 'CHF'] as const
+
 export const RATE_PERIODS = ['hour', 'day', 'month', 'year'] as const
 
 export const TASK_GROUPS = ['overdue', 'today', 'upcoming', 'no_date'] as const

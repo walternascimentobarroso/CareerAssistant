@@ -2,7 +2,7 @@
 company: Example Company C
 role: DevOps Engineer
 
-status: applied
+status: interested
 priority: low
 type: contract
 location: Lisbon (hybrid)
@@ -33,6 +33,9 @@ timeline:
   - date: 2026-10-02
     type: status_changed
     description: Status changed from recruiter to applied
+  - date: 2026-10-02
+    type: status_changed
+    description: Status changed from applied to interested
 
 ---
 

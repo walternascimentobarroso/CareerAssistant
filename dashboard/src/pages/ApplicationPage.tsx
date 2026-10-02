@@ -1,6 +1,7 @@
 import { AddNote } from '../components/AddNote'
 import { AddTimelineEvent } from '../components/AddTimelineEvent'
 import { AttachCv } from '../components/AttachCv'
+import { DeleteApplication } from '../components/DeleteApplication'
 import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
@@ -9,7 +10,7 @@ import { NextActionBox } from '../components/NextActionBox'
 import { useApplications } from '../data/loadApplications'
 import type { Application } from '../domain/applications'
 import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
-import { STATUS_LABELS } from '../domain/constants'
+import { INITIAL_STATUS, STATUS_LABELS } from '../domain/constants'
 import { formatDate, formatRate, humanize } from '../domain/format'
 
 const TOP_LEVEL_DOCUMENTS = [
@@ -118,6 +119,12 @@ export function ApplicationPage() {
         )}
         <AddNote application={application} />
       </Section>
+
+      {data.status === INITIAL_STATUS && (
+        <Section title="Delete">
+          <DeleteApplication application={application} />
+        </Section>
+      )}
     </article>
   )
 }

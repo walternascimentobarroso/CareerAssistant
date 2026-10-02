@@ -145,7 +145,7 @@ Defined once in `dashboard/src/domain/constants.ts`. Never hardcode these string
 
 ## Rules for not losing information
 
-- Never delete an application folder, transcript, summary or timeline entry unless explicitly asked. Use `status: archived` instead of deleting.
+- Never delete an application folder, transcript, summary or timeline entry unless explicitly asked. Use `status: archived` instead of deleting. The one exception is the dashboard's delete button, which the user triggers and confirms, and which only works while `status` is `interested`.
 - Never overwrite the notes in the body of `application.md`; append to them.
 - Never rename an application folder.
 - Keep everything as plain Markdown text. No binary files, no generated data files.

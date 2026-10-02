@@ -442,3 +442,7 @@ label.suggested { color: var(--accent); }
 label.suggested input, label.suggested select { border-color: var(--accent); background: var(--upcoming-bg); }
 .key-field { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .key-field label { width: 100%; }
+/* Pasted postings often keep indentation, which Markdown renders as code blocks that would not wrap. */
+.markdown { overflow-wrap: anywhere; }
+.markdown pre { white-space: pre-wrap; }
+button.danger { color: #fff; background: #c62828; border-color: #c62828; }

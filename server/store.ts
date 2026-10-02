@@ -190,6 +190,14 @@ export class Store {
       if (input.event) appendTimelineEntry(doc, input.event)
     })
   }
+  deleteApplication(slug: string, input: { revision: string }) {
+    const a = this.application(slug)
+    if (a.revision !== input.revision) throw new StoreError(409, 'File changed. Reload before deleting.')
+    // Once applied there is history worth keeping; those are closed with a status instead.
+    if (a.data.status !== INITIAL_STATUS) throw new StoreError(409, 'Only applications still in the first stage can be deleted. Archive this one instead.')
+    rmSync(this.path(`applications/${slug}`), { recursive: true })
+    return { slug }
+  }
   appendNote(slug: string, input: { revision: string; note: string }) {
     const relative = `applications/${this.id(slug)}/application.md`
     const raw = this.read(relative)

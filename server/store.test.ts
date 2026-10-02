@@ -260,3 +260,18 @@ test('create writes reviewed job description sections', () => {
     assert.ok(a.documents['job-description.md'].endsWith('## Original text\n\nPosting\n\n## Key requirements\n\n- PHP 8\n\n## Technologies\n\n- PHP\n- MySQL\n'))
   } finally { f.cleanup() }
 })
+test('delete removes only first-stage applications and rejects stale requests', async () => {
+  const f = fixture()
+  try {
+    const a = f.store.application('acme-backend')
+    assert.equal((await callApi(f.store, 'DELETE', `/api/applications/${a.slug}`, { revision: revision('old') })).status, 409)
+    const applied = f.store.status(a.slug, { revision: a.revision, status: 'applied', date: '2026-10-02' })
+    assert.equal((await callApi(f.store, 'DELETE', `/api/applications/${a.slug}`, { revision: applied.revision })).status, 409)
+    assert.equal(f.store.applications().applications.length, 1)
+    const back = f.store.status(a.slug, { revision: applied.revision, status: 'interested', date: '2026-10-02' })
+    assert.equal((await callApi(f.store, 'DELETE', '/api/applications/Not_A_Slug', { revision: back.revision })).status, 400)
+    assert.equal((await callApi(f.store, 'DELETE', `/api/applications/${a.slug}`, { revision: back.revision })).status, 200)
+    assert.equal(f.store.applications().applications.length, 0)
+    assert.equal(f.store.cv('master').name, 'master')
+  } finally { f.cleanup() }
+})

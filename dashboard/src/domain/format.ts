@@ -29,6 +29,13 @@ export function todayIsoDate() {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+export function currencyLabel(code: string) {
+  const parts = new Intl.NumberFormat('en', { style: 'currency', currency: code, currencyDisplay: 'narrowSymbol' }).formatToParts(0)
+  const symbol = parts.find((part) => part.type === 'currency')?.value
+  const name = new Intl.DisplayNames('en', { type: 'currency' }).of(code)
+  return [code, '—', symbol !== code && symbol, name !== code && name].filter(Boolean).join(' ')
+}
+
 export function formatRate(amount: number, rate: Rate) {
   const money = new Intl.NumberFormat('en', {
     style: 'currency',
