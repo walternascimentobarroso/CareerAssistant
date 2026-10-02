@@ -1,5 +1,6 @@
 import { INITIAL_STATUS, RATE_PERIODS } from './constants'
 import { applicationSchema, type ApplicationData } from './schema'
+import type { Suggestion } from './suggestion'
 
 export type ApplicationFormValues = {
   company: string
@@ -52,6 +53,33 @@ export function formFromApplication(data?: ApplicationData): ApplicationFormValu
     actionDescription: data?.next_action?.description ?? '',
     tags: data?.tags.join(', ') ?? '',
   }
+}
+
+export function formFromSuggestion(suggestion: Suggestion): ApplicationFormValues {
+  const blank = formFromApplication()
+  return {
+    ...blank,
+    company: suggestion.company ?? '',
+    role: suggestion.role ?? '',
+    type: suggestion.type ?? '',
+    location: suggestion.location ?? '',
+    job_url: suggestion.job_url ?? '',
+    rateRequested: suggestion.rate?.requested?.toString() ?? '',
+    rateMinimum: suggestion.rate?.minimum?.toString() ?? '',
+    rateCurrency: suggestion.rate?.currency ?? '',
+    ratePeriod: suggestion.rate?.period ?? blank.ratePeriod,
+    rateVat: suggestion.rate?.vat ?? false,
+    contactName: suggestion.contact?.name ?? '',
+    contactRole: suggestion.contact?.role ?? '',
+    contactEmail: suggestion.contact?.email ?? '',
+    contactPhone: suggestion.contact?.phone ?? '',
+    contactLinkedin: suggestion.contact?.linkedin ?? '',
+    tags: suggestion.tags.join(', '),
+  }
+}
+
+export function changedKeys(before: ApplicationFormValues, after: ApplicationFormValues) {
+  return (Object.keys(after) as (keyof ApplicationFormValues)[]).filter((key) => before[key] !== after[key])
 }
 
 /** `null` means "remove this field from the file"; optional fields are never written empty. */

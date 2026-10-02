@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { isNode, isSeq, parseDocument, stringify } from 'yaml'
 import { buildApplications } from '../dashboard/src/domain/applications'
 import { slugify } from '../dashboard/src/domain/format'
-import { JOB_DESCRIPTION_FILE, emptyJobDescription, serializeJobDescription } from '../dashboard/src/domain/jobDescription'
+import { JOB_DESCRIPTION_FILE, emptyJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription'
 import { applicationSchema, type TimelineEntry } from '../dashboard/src/domain/schema'
 import { APPLIED_STATUS, CLOSED_STATUSES, INITIAL_STATUS, STATUSES, type Status } from '../dashboard/src/domain/constants'
 
@@ -152,7 +152,7 @@ export class Store {
       if (CLOSED_STATUSES.includes(input.status) && !input.keepNextAction) doc.delete('next_action')
     })
   }
-  createApplication(input: { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string }) {
+  createApplication(input: { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string; jobSections?: Partial<Pick<JobDescription, 'keyRequirements' | 'niceToHave' | 'technologies'>> }) {
     const fields = Object.fromEntries(Object.entries(input.fields).filter(([, value]) => value !== null))
     const slug = slugify(`${fields.company ?? ''} ${fields.role ?? ''}`)
     if (!slug) throw new StoreError(400, 'Company and role are required')
@@ -170,7 +170,7 @@ export class Store {
     try {
       this.write(`applications/${slug}/application.md`, `---\n${stringify({ company, role, status, ...optional, tags, timeline })}---\n\n## Notes\n`, null)
       if (input.jobPosting) {
-        const description = { ...emptyJobDescription(), source: data.job_url ?? '', capturedOn: input.date, originalText: input.jobPosting }
+        const description = { ...emptyJobDescription(), ...input.jobSections, source: data.job_url ?? '', capturedOn: input.date, originalText: input.jobPosting }
         this.write(`applications/${slug}/${JOB_DESCRIPTION_FILE}`, serializeJobDescription(description), null)
       }
     } catch (error) {

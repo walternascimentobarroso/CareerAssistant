@@ -84,12 +84,15 @@ test('paths and symlinks cannot escape root, create cannot overwrite existing CV
   } finally { f.cleanup() }
 })
 
-async function callApi(store: Store, method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
+function callApi(store: Store, method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
+  return callApiWith(store, fetch, method, url, body, headers)
+}
+async function callApiWith(store: Store, fetcher: typeof fetch, method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
   const req = Readable.from(body === undefined ? [] : [JSON.stringify(body)]) as IncomingMessage
   req.method = method; req.url = url; req.headers = { host: 'localhost:5173', 'content-type': 'application/json', ...headers }
   let status = 0; let result = ''
   const res = { writeHead(code: number) { status = code }, end(value: string) { result = value } } as unknown as ServerResponse
-  await api(store)(req, res)
+  await api(store, fetcher)(req, res)
   return { status, value: JSON.parse(result) }
 }
 test('API validates requests, persists status, and rejects stale or cross-origin mutations', async () => {
@@ -201,5 +204,59 @@ test('API creates, edits and annotates applications with validation', async () =
     const noted = await callApi(f.store, 'POST', `/api/applications/${slug}/notes`, { revision: edited.value.revision, note: 'Remember this' })
     assert.ok(noted.value.notes.endsWith('Remember this'))
     assert.equal((await callApi(f.store, 'PUT', `/api/applications/${slug}/job-description`, { content: '# Job Description\n', revision: null })).status, 200)
+  } finally { f.cleanup() }
+})
+function provider(answer: unknown, status = 200) {
+  const calls: { url: string; authorization: string }[] = []
+  const fetcher = (async (url: string, init: RequestInit) => {
+    calls.push({ url, authorization: (init.headers as Record<string, string>).Authorization })
+    return new Response(JSON.stringify(answer), { status })
+  }) as typeof fetch
+  return { calls, fetcher }
+}
+const completion = (content: string) => ({ choices: [{ message: { content } }] })
+test('settings never expose keys, keep unknown .env lines and take effect immediately', async () => {
+  const f = fixture()
+  try {
+    const first = await callApi(f.store, 'GET', '/api/settings')
+    assert.equal(first.value.provider, 'groq')
+    assert.ok(first.value.providers.every((p: { configured: boolean }) => !p.configured))
+    writeFileSync(join(f.root, '.env'), '# mine\nOTHER=1\nGROQ_API_KEY=old\n')
+    const saved = await callApi(f.store, 'PUT', '/api/settings', { provider: 'gemini', model: 'gemini-x', keys: { groq: 'gsk_new' } })
+    assert.equal(saved.status, 200)
+    assert.ok(!JSON.stringify(saved.value).includes('gsk_new'))
+    assert.deepEqual(saved.value.providers.map((p: { configured: boolean }) => p.configured), [true, false])
+    assert.equal(readFileSync(join(f.root, '.env'), 'utf8'), '# mine\nOTHER=1\nGROQ_API_KEY=gsk_new\nAI_PROVIDER=gemini\nAI_MODEL=gemini-x\n')
+    await callApi(f.store, 'PUT', '/api/settings', { provider: 'groq' })
+    assert.equal(readFileSync(join(f.root, '.env'), 'utf8'), '# mine\nOTHER=1\nGROQ_API_KEY=gsk_new\nAI_PROVIDER=groq\n')
+    assert.equal((await callApi(f.store, 'PUT', '/api/settings', { provider: 'groq', keys: { groq: 'a\nEVIL=1' } })).status, 422)
+    assert.equal((await callApi(f.store, 'PUT', '/api/settings', { provider: 'other' })).status, 422)
+  } finally { f.cleanup() }
+})
+test('extraction proposes fields, drops invalid values and writes nothing', async () => {
+  const f = fixture()
+  try {
+    assert.equal((await callApi(f.store, 'POST', '/api/extract', { text: 'A job' })).status, 400)
+    writeFileSync(join(f.root, '.env'), 'GROQ_API_KEY=gsk_test\n')
+    const answer = { company: 'Beta', role: null, type: 'freelance', rate: { requested: 300, currency: 'euros', period: 'day' }, contact: null, tags: ['php', 7, ''], keyRequirements: ['PHP 8'], technologies: 'PHP' }
+    const good = provider(completion('```json\n' + JSON.stringify(answer) + '\n```'))
+    const extracted = await callApiWith(f.store, good.fetcher, 'POST', '/api/extract', { text: 'A job' })
+    assert.equal(extracted.status, 200)
+    assert.deepEqual(extracted.value.suggestion, { company: 'Beta', rate: { requested: 300, period: 'day' }, tags: ['php'], keyRequirements: ['PHP 8'], niceToHave: [], technologies: [] })
+    assert.equal(extracted.value.model, 'openai/gpt-oss-120b')
+    assert.deepEqual(good.calls, [{ url: 'https://api.groq.com/openai/v1/chat/completions', authorization: 'Bearer gsk_test' }])
+    assert.equal((await callApiWith(f.store, provider(completion('Sorry, no.')).fetcher, 'POST', '/api/extract', { text: 'A job' })).status, 502)
+    const failed = await callApiWith(f.store, provider([{ error: { message: 'Quota exceeded' } }], 429).fetcher, 'POST', '/api/extract', { text: 'A job', provider: 'groq' })
+    assert.deepEqual([failed.status, failed.value.error], [502, 'Groq: Quota exceeded'])
+    const models = await callApiWith(f.store, provider({ data: [{ id: 'models/chat-b' }, { id: 'whisper-large' }, { id: 'chat-a' }] }).fetcher, 'GET', '/api/models/groq')
+    assert.deepEqual(models.value, ['chat-a', 'chat-b'])
+    assert.equal(f.store.applications().applications.length, 1)
+  } finally { f.cleanup() }
+})
+test('create writes reviewed job description sections', () => {
+  const f = fixture()
+  try {
+    const a = f.store.createApplication({ fields: { company: 'Beta', role: 'Dev' }, applied: false, date: '2026-10-02', jobPosting: 'Posting', jobSections: { keyRequirements: ['PHP 8'], technologies: ['PHP', 'MySQL'] } })
+    assert.ok(a.documents['job-description.md'].endsWith('## Original text\n\nPosting\n\n## Key requirements\n\n- PHP 8\n\n## Technologies\n\n- PHP\n- MySQL\n'))
   } finally { f.cleanup() }
 })

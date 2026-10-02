@@ -438,3 +438,7 @@ input[aria-invalid="true"] { border-color: var(--overdue); }
 .inline-form .grow { flex: 1 1 240px; }
 .inline-form p { flex-basis: 100%; margin: 0; }
 .note-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+label.suggested { color: var(--accent); }
+label.suggested input, label.suggested select { border-color: var(--accent); background: var(--upcoming-bg); }
+.key-field { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.key-field label { width: 100%; }

@@ -163,5 +163,6 @@ Defined once in `dashboard/src/domain/constants.ts`. Never hardcode these string
 - Status changes append a timeline event and the first move to `applied` fills `applied_at`; same-status requests are no-ops. Closing a candidature removes next_action unless the user chooses to retain it.
 - CV imports accept Markdown/plain text. Base CV attachment creates an independent application copy. Replacing an existing historical CV requires explicit authorization.
 - Preserve notes byte-for-byte, use atomic replacement, and reject paths or symlinks outside the allowed document locations.
+- AI extraction (`server/ai.ts`) only proposes values for the New application form; it never writes files. Provider keys and the default provider/model live in the git-ignored `.env`; never return a key to the browser, log it or commit it. Send providers the pasted posting text only.
 - The backend is for local use and binds to loopback; do not expose it publicly.
 - `dashboard/src/domain/` has no React and no Vite-specific code because `scripts/validate.ts` imports it.

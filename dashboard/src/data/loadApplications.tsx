@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Application, ApplicationError } from '../domain/applications'
 export type LiveApplication = Application & { revision: string }
 export type Cv = { name: string; content: string; revision: string }
+export type AiProvider = { id: string; label: string; defaultModel: string; configured: boolean }
+export type AiSettings = { provider: string; model: string; providers: AiProvider[] }
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
   const value = await response.json()

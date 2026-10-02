@@ -3,17 +3,17 @@ import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRIORITIES, PRIORITY_LABELS, RATE
 import type { ApplicationFormValues, FieldErrors } from '../domain/applicationForm'
 
 type TextKey = { [K in keyof ApplicationFormValues]: ApplicationFormValues[K] extends string ? K : never }[keyof ApplicationFormValues]
-type Props = { value: ApplicationFormValues; errors: FieldErrors; disabled: boolean; onChange: (value: ApplicationFormValues) => void }
+type Props = { value: ApplicationFormValues; errors: FieldErrors; disabled: boolean; onChange: (value: ApplicationFormValues) => void; suggested?: ReadonlySet<keyof ApplicationFormValues> }
 
-export function ApplicationForm({ value, errors, disabled, onChange }: Props) {
+export function ApplicationForm({ value, errors, disabled, onChange, suggested }: Props) {
   const set = (changes: Partial<ApplicationFormValues>) => onChange({ ...value, ...changes })
   const input = (key: TextKey, label: string, path: string, attributes: InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <Field label={label} error={errors[path]}>
+    <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
       <input value={value[key]} disabled={disabled} aria-invalid={path in errors} onChange={e => set({ [key]: e.target.value })} {...attributes} />
     </Field>
   )
   const select = (key: TextKey, label: string, path: string, options: readonly string[], labels: Record<string, string> | null, allowEmpty: boolean) => (
-    <Field label={label} error={errors[path]}>
+    <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
       <select value={value[key]} disabled={disabled} onChange={e => set({ [key]: e.target.value })}>
         {allowEmpty && <option value="">Not set</option>}
         {options.map(option => <option key={option} value={option}>{labels?.[option] ?? option}</option>)}
@@ -65,6 +65,6 @@ export function ApplicationForm({ value, errors, disabled, onChange }: Props) {
   </>
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
-  return <label>{label}{children}{error && <span className="field-error">{error}</span>}</label>
+function Field({ label, error, suggested, children }: { label: string; error?: string; suggested?: boolean; children: ReactNode }) {
+  return <label className={suggested ? 'suggested' : undefined}>{label}{suggested && ' · filled by AI, please check'}{children}{error && <span className="field-error">{error}</span>}</label>
 }

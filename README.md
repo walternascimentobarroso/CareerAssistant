@@ -77,7 +77,7 @@ The full field reference for `application.md` is in [CLAUDE.md](CLAUDE.md#applic
 
 ## Adding an application
 
-In the dashboard, open **New application**, fill in the form and paste the posting text. The folder name is derived from company and role and never changes. To do the same by hand:
+In the dashboard, open **New application**. Step 1: paste the posting text and click **Extract fields**; the chosen AI model proposes company, role, location, contract type, rate, contact, tags and the job description lists. Step 2: review the form (fields filled by AI are highlighted), adjust and click **Create application**. Nothing is written until then. **Fill in manually** skips the AI. The folder name is derived from company and role and never changes. To do the same by hand:
 
 ```bash
 mkdir applications/acme-senior-backend-engineer
@@ -131,7 +131,20 @@ Not implemented on purpose:
 - Interview preparation from the job description, the CV sent and previous interviews
 - Completing tasks from the dashboard
 - History of completed actions
-- Integrations: calendar, email, transcription, job boards, AI APIs
+- Integrations: calendar, email, transcription, job boards
+
+## AI settings
+
+Extraction uses Groq or Gemini through their OpenAI-compatible APIs. Open **Settings** to paste API keys, test them and choose the default provider and model; the provider and model can also be changed per extraction on the New application page. Settings live in `.env` at the project root, which Git ignores:
+
+```bash
+GROQ_API_KEY=...
+GEMINI_API_KEY=...
+AI_PROVIDER=groq          # optional, groq is the default
+AI_MODEL=...              # optional, each provider has a default
+```
+
+Keys never leave the server: the browser only learns whether a key is saved. Only the posting text you paste is sent to the provider; CVs, notes and interviews never are.
 
 ## Managing CVs
 
@@ -147,4 +160,4 @@ Use **Reload files**, reload a CV from disk, or return focus to the window to re
 
 The backend is intended for a single local user. Production binds to `127.0.0.1` and rejects cross-origin API access. Do not expose it publicly without adding authentication and deployment hardening. `vite preview` previews only static assets; use `npm start` for the working production app.
 
-API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, and `POST /api/applications/:slug/cv`. Mutation requests use JSON and include revisions for existing files.
+API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, `POST /api/applications/:slug/cv`, `GET`/`PUT /api/settings`, `GET /api/models/:provider` and `POST /api/extract`. Mutation requests use JSON and include revisions for existing files.
