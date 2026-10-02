@@ -1,8 +1,9 @@
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
-import { findApplication } from '../data/loadApplications'
+import { useApplications } from '../data/loadApplications'
 
 export function DocumentPage() {
+  const { findApplication } = useApplications()
   const { slug, '*': path = '' } = useParams()
   const application = findApplication(slug)
   const content = application?.documents[path]

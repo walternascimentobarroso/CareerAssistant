@@ -2,7 +2,7 @@
 company: Example Company A
 role: Senior Backend Engineer
 
-status: applied
+status: technical_interview
 priority: medium
 type: permanent
 location: Remote (EU)
@@ -34,6 +34,14 @@ timeline:
   - date: 2026-09-30
     type: applied
     description: Application submitted through the careers page
+  - date: 2026-10-02
+    type: status_changed
+    description: Status changed from applied to recruiter
+
+  - date: 2026-10-02
+    type: status_changed
+    description: Status changed from recruiter to technical_interview
+
 ---
 
 ## Notes

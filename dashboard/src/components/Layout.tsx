@@ -1,8 +1,9 @@
 import { NavLink, Outlet } from 'react-router'
-import { errors } from '../data/loadApplications'
+import { useApplications } from '../data/loadApplications'
 import { ParseErrors } from './ParseErrors'
 
 export function Layout() {
+  const { errors, loading, error, reload } = useApplications()
   return (
     <>
       <header className="topbar">
@@ -12,11 +13,14 @@ export function Layout() {
             Board
           </NavLink>
           <NavLink to="/tasks">Tasks</NavLink>
+          <NavLink to="/cvs">CVs</NavLink>
         </nav>
       </header>
       <main>
         <ParseErrors errors={errors} />
-        <Outlet />
+        <button onClick={() => void reload().catch(() => {})}>Reload files</button>
+        {error && <p role="alert">{error}</p>}
+        {loading ? <p>Loading files…</p> : <Outlet />}
       </main>
     </>
   )

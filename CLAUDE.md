@@ -6,7 +6,7 @@ Personal repository that tracks a job search. Read this before touching any file
 Markdown = DATA      Git = HISTORY      React = VIEW      AI = ASSISTANT
 ```
 
-The Markdown files are the only source of truth. The dashboard is a read-only view and has no storage of its own. Never put data anywhere else (no JSON caches, no databases, no state inside `dashboard/`).
+The Markdown files are the only source of truth. The dashboard reads and writes through a local Node.js API and has no persistent storage of its own. Never put data anywhere else (no JSON caches, no databases, no state inside `dashboard/`).
 
 ## Structure
 
@@ -22,7 +22,8 @@ cv/master.md                  the complete CV; every other CV is a subset of it
 cv/<focus>.md                 base versions (backend, devops, security)
 contacts/                     optional notes about people shared across applications
 templates/                    files to copy when creating things
-dashboard/                    Vite + React view
+dashboard/                    Vite + React interface
+server/                       local API and Markdown file operations
 dashboard/src/domain/         schema, constants and parsing shared with the validator
 scripts/validate.ts           `npm run validate`
 ```
@@ -154,5 +155,11 @@ Defined once in `dashboard/src/domain/constants.ts`. Never hardcode these string
 ## Dashboard code
 
 - `npm run dev` starts it, `npm run build` type-checks and builds, `npm run validate` checks the Markdown.
-- The dashboard only reads. Do not add write features, a backend or a database without being asked.
+- The dashboard writes only through `server/`; Markdown remains the only source of truth. Never add a database.
+- `npm run dev` serves the dashboard and API together. `npm run build && npm start` serves production locally. `npm test` checks persistence safeguards.
+- API writes require the current content hash. Reject stale edits rather than overwriting external changes.
+- Status changes append a timeline event; same-status requests are no-ops. Closing a candidature removes next_action unless the user chooses to retain it.
+- CV imports accept Markdown/plain text. Base CV attachment creates an independent application copy. Replacing an existing historical CV requires explicit authorization.
+- Preserve notes byte-for-byte, use atomic replacement, and reject paths or symlinks outside the allowed document locations.
+- The backend is for local use and binds to loopback; do not expose it publicly.
 - `dashboard/src/domain/` has no React and no Vite-specific code because `scripts/validate.ts` imports it.

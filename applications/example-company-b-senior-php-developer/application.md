@@ -2,7 +2,7 @@
 company: Example Company B
 role: Senior PHP Developer
 
-status: technical_interview
+status: recruiter
 priority: high
 type: b2b
 location: Remote
@@ -44,6 +44,10 @@ timeline:
   - date: 2026-10-06
     type: interview
     description: Technical interview scheduled
+  - date: 2026-10-02
+    type: status_changed
+    description: Status changed from technical_interview to recruiter
+
 ---
 
 ## Notes

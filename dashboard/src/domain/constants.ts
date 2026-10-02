@@ -56,3 +56,5 @@ export const TASK_GROUP_LABELS: Record<TaskGroup, string> = {
   upcoming: 'Upcoming',
   no_date: 'No date',
 }
+
+export const CLOSED_STATUSES: readonly Status[] = ['accepted', 'rejected', 'archived']

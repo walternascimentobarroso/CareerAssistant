@@ -412,3 +412,19 @@ main {
     flex-basis: 80vw;
   }
 }
+
+button, input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; }
+button { cursor: pointer; }
+button:disabled { opacity: .55; cursor: default; }
+button[aria-pressed="true"] { border-color: var(--accent); }
+label { display: flex; flex-direction: column; gap: 6px; }
+label:has(input[type="checkbox"]) { display: block; }
+textarea { width: 100%; resize: vertical; font-family: monospace; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cv-manager { max-width: 1200px; }
+.cv-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.attach-cv { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.column select { width: 100%; margin-top: 4px; }
+.drop-target { outline: 1px dashed var(--accent); min-height: 160px; }
+[role="alert"] { color: var(--overdue); padding: 12px 0; }
+@media (max-width: 800px) { .cv-columns { grid-template-columns: 1fr; } }

@@ -1,9 +1,10 @@
+import { AttachCv } from '../components/AttachCv'
 import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { Badges } from '../components/Badges'
 import { NextActionBox } from '../components/NextActionBox'
-import { findApplication } from '../data/loadApplications'
+import { useApplications } from '../data/loadApplications'
 import type { Application } from '../domain/applications'
 import { STATUS_LABELS } from '../domain/constants'
 import { formatDate, formatRate, humanize } from '../domain/format'
@@ -14,6 +15,7 @@ const TOP_LEVEL_DOCUMENTS = [
 ]
 
 export function ApplicationPage() {
+  const { findApplication } = useApplications()
   const application = findApplication(useParams().slug)
   if (!application) return <p className="muted">Application not found.</p>
 
@@ -67,6 +69,7 @@ export function ApplicationPage() {
 
         <Section title="Documents">
           <DocumentLinks application={application} />
+          <AttachCv application={application} />
         </Section>
 
         <Section title="Interviews">

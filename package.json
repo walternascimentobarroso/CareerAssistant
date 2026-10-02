@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "validate": "tsx scripts/validate.ts"
+    "validate": "node --import tsx scripts/validate.ts",
+    "start": "node --import tsx server/index.ts",
+    "test": "node --import tsx --test server/store.test.ts"
   },
   "dependencies": {
     "react": "^19.3.0",

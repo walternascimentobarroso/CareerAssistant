@@ -1,10 +1,11 @@
 import { Link } from 'react-router'
-import { applications } from '../data/loadApplications'
+import { useApplications } from '../data/loadApplications'
 import { TASK_GROUPS, TASK_GROUP_LABELS } from '../domain/constants'
 import { formatDate, todayIsoDate } from '../domain/format'
 import { listTasks } from '../domain/tasks'
 
 export function TasksPage() {
+  const { applications } = useApplications()
   const tasks = listTasks(applications, todayIsoDate())
 
   return (
