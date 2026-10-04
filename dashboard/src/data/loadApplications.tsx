@@ -15,7 +15,7 @@ export type AiSettings = { provider: string; model: string; providers: AiProvide
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
   const value = await response.json()
-  if (!response.ok) throw new Error(value.error ?? 'Request failed')
+  if (!response.ok) throw Object.assign(new Error(value.error ?? 'Request failed'), { status: response.status, fields: value.fields })
   return value as T
 }
 export async function revisionOf(content: string) {

@@ -142,3 +142,13 @@ Additional routes:
 Mutations use JSON. Application mutations require `revision`; CV saves require the current CV revision. Job-description saves use `jobRevision` (or `null` when creating the document). CV selection uses source revision and the displayed application-CV association UUID, not a Markdown hash.
 
 The server binds to `127.0.0.1` and rejects cross-origin API access. It remains a personal local application.
+
+### Personal profile
+
+The **Personal profile** page (`/profile`, under the dashboard hash router) stores one reusable, optional profile in PostgreSQL. It includes contact details, current residence, work authorization and sponsorship separately per country, manually entered experience, availability, salary expectations, contract/remote preferences and languages. Settings remains dedicated to AI configuration.
+
+`GET /api/profile` returns `{ profile: null }` until saved, or the full profile with its revision. `PUT /api/profile` accepts all profile fields plus `revision` (`null` for first creation); it saves the profile and lists atomically and returns the saved profile. Invalid fields return HTTP 400 with field errors; stale saves and concurrent creation return HTTP 409. Removed list items use soft deletion. Apply the new `005_personal_profile.sql` migration through the explicit `npm run db:migrate` command before using the page.
+
+On a new application, **Use profile salary defaults** applies a complete personal salary expectation. Existing salary data requires confirmation before replacement, including advertised ranges. Applied values are independent snapshots with `personal_expectation` as their basis. Residence, eligibility, language and job preferences are not copied into vacancy facts; editing a profile does not change previous applications or CV versions. Profile data is not sent automatically to AI or imported from CVs.
+
+Profile domain tests run with `npm test`. PostgreSQL tests (`npm run test:postgres`) require `TEST_DATABASE_URL` and use an isolated schema to verify concurrency, decimal precision, uniqueness, atomic rollback and soft deletion.

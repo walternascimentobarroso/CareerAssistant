@@ -1,3 +1,4 @@
+import { savePersonalProfileSchema } from '../dashboard/src/domain/personalProfile.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { STATUSES } from '../dashboard/src/domain/constants.ts'
@@ -65,6 +66,14 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
       const [, collection, id, action] = segments
       if (segments[0] !== 'api' || segments.length > 4) throw new StoreError(404, 'Endpoint not found')
       if (req.method !== 'GET' && !req.headers['content-type']?.startsWith('application/json')) throw new StoreError(415, 'Use application/json')
+      if (collection === 'profile' && !id) {
+        if (req.method === 'GET') return send(200, await store.personalProfile())
+        if (req.method === 'PUT') {
+          const parsed = savePersonalProfileSchema.safeParse(await body(req))
+          if (!parsed.success) return send(400, { error: 'Invalid profile fields', fields: Object.fromEntries(parsed.error.issues.map(i => [i.path.join('.'), i.message])) })
+          return send(200, await store.savePersonalProfile(parsed.data))
+        }
+      }
       if (collection === 'config' && req.method === 'GET' && !id) return send(200, { timezone:store.timezone() })
       if (collection === 'trash' && req.method === 'GET' && !id) return send(200, await store.trash())
       if (collection === 'trash' && id && !action && req.method === 'DELETE') return send(200, await store.permanentlyDeleteApplication(id, deleteInput.parse(await body(req))))

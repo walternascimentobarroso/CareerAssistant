@@ -1,3 +1,4 @@
+import { emptyPersonalProfile } from '../dashboard/src/domain/personalProfile'
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import pg from 'pg'
@@ -47,7 +48,7 @@ async function request(method:string,path:string,body?:unknown) {
 }
 test('migrations are transactional and repeatable',integration,async () => {
   assert.deepEqual(await migrate(pool),[])
-  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'4')
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'5')
 })
 test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
   let a=await create()
@@ -241,4 +242,48 @@ test('job posting capture is stored with the application, kept apart from its da
   for (const jobPostingCapture of invalid) assert.equal((await request('POST','/api/applications',{fields:{company:'Bad Capture',role:'Backend'},applied:false,date:'2026-10-03',jobPosting:'Text',jobPostingCapture})).status,422)
   assert.equal((await request('POST','/api/applications',{fields:{company:'Bad Capture',role:'Backend'},applied:false,date:'2026-10-03',jobPostingCapture:{inputKind:'manual'}})).status,422)
   await assert.rejects(pool.query("UPDATE jobs SET description_capture_method='html' WHERE id=$1",[none.jobId]),{code:'23514'})
+})
+
+test('personal profile concurrency, decimals, soft delete, uniqueness, atomicity and API validation', integration, async () => {
+  assert.deepEqual(await store.personalProfile(), { profile: null })
+  const input = { ...emptyPersonalProfile, salaryExpected: '900719925474099.1234', salaryMinimum: '900719925474099.1233', salaryCurrency: 'EUR', salaryPeriod: 'year' as const,
+    workAuthorizations: [{ country: 'PT', authorization: 'authorized' as const, sponsorship: 'unknown' as const, notes: null }, { country: 'US', authorization: 'not_authorized' as const, sponsorship: 'yes' as const, notes: 'Needs sponsor' }],
+    languages: [{ code: 'pt', level: 'native' as const }], contractPreferences: ['b2b' as const], revision: null }
+  const creates = await Promise.allSettled([store.savePersonalProfile(input), store.savePersonalProfile(input)])
+  assert.equal(creates.filter(r => r.status === 'fulfilled').length, 1)
+  assert.equal((creates.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.status, 409)
+  let profile = (await store.personalProfile()).profile!
+  assert.equal(profile.salaryExpected, input.salaryExpected)
+  assert.equal(profile.salaryMinimum, input.salaryMinimum)
+  assert.equal(profile.workAuthorizations.find(v => v.country === 'PT')?.sponsorship, 'unknown')
+  const { id, ...update } = profile
+  const writes = await Promise.allSettled([store.savePersonalProfile({ ...update, name: 'First' }), store.savePersonalProfile({ ...update, name: 'Second' })])
+  assert.equal(writes.filter(r => r.status === 'fulfilled').length, 1)
+  assert.equal((writes.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.status, 409)
+  profile = (await store.personalProfile()).profile!
+  const { id: _id, ...current } = profile
+  const removed = (await store.savePersonalProfile({ ...current, languages: [], workAuthorizations: [profile.workAuthorizations[0]] })).profile!
+  assert.notEqual(removed.revision, profile.revision)
+  assert.equal(removed.languages.length, 0)
+  assert.equal((await pool.query('SELECT count(*) FROM personal_profile_languages WHERE profile_id=$1 AND deleted_at IS NOT NULL', [id])).rows[0].count, '1')
+  assert.equal((await pool.query('SELECT count(*) FROM personal_profile_work_authorizations WHERE profile_id=$1 AND deleted_at IS NOT NULL', [id])).rows[0].count, '1')
+  await assert.rejects(pool.query('INSERT INTO personal_profiles DEFAULT VALUES'), { code: '23505' })
+  await assert.rejects(pool.query("INSERT INTO personal_profile_contract_preferences(profile_id,contract_type) VALUES ($1,'b2b')", [id]), { code: '23505' })
+  // Inject a database failure after the parent update to verify rollback of the whole save.
+  await pool.query("CREATE FUNCTION reject_test_language() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.code='en' THEN RAISE EXCEPTION 'test failure'; END IF; RETURN NEW; END $$")
+  await pool.query('CREATE TRIGGER reject_test_language BEFORE INSERT ON personal_profile_languages FOR EACH ROW EXECUTE FUNCTION reject_test_language()')
+  try {
+    const { id: _removedId, ...last } = removed
+    await assert.rejects(store.savePersonalProfile({ ...last, name: 'Must roll back', languages: [{ code: 'en', level: 'C1' }] }))
+    assert.deepEqual((await store.personalProfile()).profile, removed)
+  } finally { await pool.query('DROP TRIGGER reject_test_language ON personal_profile_languages'); await pool.query('DROP FUNCTION reject_test_language()') }
+  assert.equal((await request('PUT','/api/profile',{ ...input, revision: removed.revision, website: 'javascript:alert(1)' })).status, 400)
+  const invalid = await request('PUT','/api/profile',{ ...input, revision: removed.revision, extra: 'unexpected' })
+  assert.equal(invalid.status, 400)
+  assert.equal((await request('PUT','/api/profile',input)).status, 409)
+  assert.equal((await request('GET','/api/profile')).value.profile.id, id)
+  // Active-child guards reject restoration beneath a removed profile.
+  await pool.query('UPDATE personal_profiles SET deleted_at=now() WHERE id=$1', [id])
+  await assert.rejects(pool.query("INSERT INTO personal_profile_languages(profile_id,code,level) VALUES ($1,'en','C1')", [id]), { code: '23514' })
+  assert.deepEqual(await store.personalProfile(), { profile: null })
 })

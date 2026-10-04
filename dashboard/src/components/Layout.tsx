@@ -15,6 +15,7 @@ export function Layout() {
           <NavLink to="/cvs">CVs</NavLink>
           <NavLink to="/messages">Messages</NavLink>
           <NavLink to="/new">New application</NavLink>
+          <NavLink to="/profile">Personal profile</NavLink>
           <NavLink to="/settings">Settings</NavLink>
           <NavLink to="/trash">Trash</NavLink>
         </nav>

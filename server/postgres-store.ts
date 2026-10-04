@@ -1,3 +1,4 @@
+import { personalProfileSchema, savePersonalProfileSchema, type PersonalProfile, type PersonalProfileFields } from '../dashboard/src/domain/personalProfile.ts'
 import { randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import { isDeepStrictEqual } from 'node:util'
@@ -62,6 +63,61 @@ export class PostgresStore {
     if (!rows.length) throw new StoreError(404, 'Application not found')
     if (expected !== undefined && String(rows[0].row_version) !== expected) throw new StoreError(409, 'Application changed. Reload before saving.')
     return rows[0]
+  }
+  async personalProfile(query: Queryable = this.pool): Promise<{ profile: PersonalProfile | null }> {
+    if (query === this.pool) return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      return this.personalProfile(client)
+    })
+    const { rows } = await query.query('SELECT * FROM personal_profiles WHERE deleted_at IS NULL')
+    if (!rows.length) return { profile: null }
+    const row = rows[0]
+    const fields: Record<string, unknown> = {}
+    for (const key of Object.keys(personalProfileSchema.shape).filter(k => !['workAuthorizations','languages','contractPreferences'].includes(k))) {
+      fields[key] = row[key.replace(/[A-Z]/g, c => '_' + c.toLowerCase())]
+    }
+    const authorizations = await query.query('SELECT country,authorization,sponsorship,notes FROM personal_profile_work_authorizations WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
+    const languages = await query.query('SELECT code,level FROM personal_profile_languages WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
+    const contracts = await query.query('SELECT contract_type FROM personal_profile_contract_preferences WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
+    return { profile: { ...personalProfileSchema.parse({ ...fields, workAuthorizations: authorizations.rows, languages: languages.rows, contractPreferences: contracts.rows.map(r => r.contract_type) }), id: row.id, revision: String(row.row_version) } }
+  }
+  async savePersonalProfile(input: PersonalProfileFields & { revision: string | null }) {
+    const { revision: expected, ...fields } = savePersonalProfileSchema.parse(input)
+    try {
+      return await transaction(this.pool, async client => {
+        const { rows } = await client.query('SELECT id,row_version FROM personal_profiles WHERE deleted_at IS NULL FOR UPDATE')
+        if ((rows.length && String(rows[0].row_version) !== expected) || (!rows.length && expected !== null)) throw new StoreError(409, 'Profile changed. Load the current version before saving.')
+        const keys = Object.keys(personalProfileSchema.shape).filter(k => !['workAuthorizations','languages','contractPreferences'].includes(k)) as (keyof PersonalProfileFields)[]
+        const columns = keys.map(k => k.replace(/[A-Z]/g, c => '_' + c.toLowerCase()))
+        const values = keys.map(k => fields[k])
+        let id: string
+        if (rows.length) {
+          id = rows[0].id
+          await client.query(`UPDATE personal_profiles SET ${columns.map((c,i) => `${c}=$${i+2}`).join(',')} WHERE id=$1`, [id,...values])
+        } else {
+          const created = await client.query(`INSERT INTO personal_profiles (${columns.join(',')}) VALUES (${values.map((_,i) => `$${i+1}`).join(',')}) RETURNING id`, values)
+          id = created.rows[0].id
+        }
+        // Preserve identity for retained entries; removed items remain in history.
+        const lists = [
+          { table: 'personal_profile_work_authorizations', key: 'country', columns: ['country','authorization','sponsorship','notes'], items: fields.workAuthorizations },
+          { table: 'personal_profile_languages', key: 'code', columns: ['code','level'], items: fields.languages },
+          { table: 'personal_profile_contract_preferences', key: 'contract_type', columns: ['contract_type'], items: fields.contractPreferences.map(contract_type => ({ contract_type })) },
+        ]
+        for (const list of lists) {
+          const items = list.items as Record<string, unknown>[]
+          await client.query(`UPDATE ${list.table} SET deleted_at=clock_timestamp() WHERE profile_id=$1 AND deleted_at IS NULL AND NOT (${list.key}=ANY($2::text[]))`, [id,items.map(item => item[list.key])])
+          for (const item of items) {
+            await client.query(`INSERT INTO ${list.table} (profile_id,${list.columns.join(',')}) VALUES ($1,${list.columns.map((_,i) => `$${i+2}`).join(',')})
+              ON CONFLICT (profile_id,${list.key}) WHERE deleted_at IS NULL DO UPDATE SET ${list.columns.map(c => `${c}=EXCLUDED.${c}`).join(',')}`, [id,...list.columns.map(c => item[c])])
+          }
+        }
+        return this.personalProfile(client)
+      })
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') throw new StoreError(409, 'Profile changed. Load the current version before saving.')
+      throw error
+    }
   }
   async applications() {
     return transaction(this.pool, async client => {

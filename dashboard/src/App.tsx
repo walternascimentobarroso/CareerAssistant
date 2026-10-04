@@ -1,3 +1,4 @@
+import { PersonalProfilePage } from './pages/PersonalProfilePage'
 import { ApplicationsProvider } from './data/loadApplications'
 import { TrashPage } from './pages/TrashPage'
 import { CvPage } from './pages/CvPage'
@@ -24,6 +25,7 @@ export function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="messages" element={<MessagesPage />} />
           <Route path="new" element={<NewApplicationPage />} />
+          <Route path="profile" element={<PersonalProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="applications/:slug" element={<ApplicationPage />} />
           <Route path="applications/:slug/edit" element={<EditApplicationPage />} />

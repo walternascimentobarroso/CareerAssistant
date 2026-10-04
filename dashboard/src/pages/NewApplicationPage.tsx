@@ -1,3 +1,4 @@
+import { applyProfileSalary, hasSalaryData, type PersonalProfile } from '../domain/personalProfile'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApplicationForm } from '../components/ApplicationForm'
@@ -15,6 +16,14 @@ type Sections = Record<(typeof EXTRACTED_SECTIONS)[number], string>
 const NO_SECTIONS: Sections = { keyRequirements: '', niceToHave: '', technologies: '' }
 
 export function NewApplicationPage() {
+  const [profile, setProfile] = useState<PersonalProfile | null>(null)
+  const [profileError, setProfileError] = useState('')
+  async function loadProfile() {
+    setProfileError('')
+    try { setProfile((await request<{ profile: PersonalProfile | null }>('/profile')).profile) }
+    catch { setProfileError('Unable to load profile salary defaults.') }
+  }
+  useEffect(() => { void loadProfile() }, [])
   const [step, setStep] = useState<'posting' | 'review'>('posting')
   const [jobPosting, setJobPosting] = useState('')
   const [jobUrl, setJobUrl] = useState('')
@@ -124,6 +133,11 @@ export function NewApplicationPage() {
     <h1>New application</h1>
     <p className="muted">Step 2 of 2. {slug ? `Application identifier: ${slug}. A suffix is added if needed.` : 'Fill in company and role.'} Leave "Applied on" empty if you have not applied yet.</p>
     <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void create() }}>
+      {profile?.salaryExpected && profile.salaryCurrency && profile.salaryPeriod && <button type="button" disabled={!!busy} onClick={() => {
+        if (hasSalaryData(form) && !window.confirm('Replace the complete salary group with your profile defaults?')) return
+        edit(applyProfileSalary(form, profile)); setErrors({})
+      }}>Use profile salary defaults</button>}
+      {profileError && <p role="status">{profileError} <button type="button" disabled={!!busy} onClick={() => void loadProfile()}>Retry</button></p>}
       <ApplicationForm value={form} errors={errors} disabled={!!busy} suggested={suggested} onChange={edit} />
       {jobPosting.trim() && <fieldset>
         <legend>Job description (one item per line)</legend>
