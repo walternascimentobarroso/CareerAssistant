@@ -3,7 +3,8 @@ import { existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join, resolve } from 'node:path'
 
 export class StoreError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  public status: number
+  constructor(status: number, message: string) { super(message); this.status = status }
 }
 export const revision = (content: string) => createHash('sha256').update(content).digest('hex')
 // status, timeline and cv have their own operations so their side effects are never skipped.
@@ -12,7 +13,8 @@ export type ApplicationFields = Partial<Record<(typeof EDITABLE_FIELDS)[number],
 
 /** Configuration and static files under the project root; domain data lives in PostgreSQL. */
 export class Store {
-  constructor(public root: string) { this.root = resolve(root) }
+  public root: string
+  constructor(root: string) { this.root = resolve(root) }
   path(relative: string) {
     const parts = relative.split('/')
     if (parts.some(p => !p || p === '.' || p === '..' || p.includes('\\'))) throw new StoreError(400, 'Invalid path')

@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { decimalAmount, legacyDecimal } from './money'
-import { CONTRACT_TYPES, PRIORITIES, RATE_PERIODS, STATUSES } from './constants'
+import { decimalAmount, legacyDecimal } from './money.ts'
+import { CONTRACT_TYPES, PRIORITIES, RATE_PERIODS, STATUSES } from './constants.ts'
 
 function isIsoDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false

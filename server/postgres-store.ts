@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import { isDeepStrictEqual } from 'node:util'
 import { stringify } from 'yaml'
-import { Store, StoreError, revision, type ApplicationFields } from './store'
-import { transaction, environment } from './db/connection'
-import { applicationSchema, isoDate, type ApplicationData, type TimelineEntry } from '../dashboard/src/domain/schema'
-import { slugify, todayIsoDate, setPersonalTimezone } from '../dashboard/src/domain/format'
-import { CLOSED_STATUSES, type Status } from '../dashboard/src/domain/constants'
-import { emptyJobDescription, parseJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription'
-import type { LiveApplication } from '../dashboard/src/data/loadApplications'
+import { Store, StoreError, revision, type ApplicationFields } from './store.ts'
+import { transaction, environment } from './db/connection.ts'
+import { applicationSchema, isoDate, type ApplicationData, type TimelineEntry } from '../dashboard/src/domain/schema.ts'
+import { slugify, todayIsoDate, setPersonalTimezone } from '../dashboard/src/domain/format.ts'
+import { CLOSED_STATUSES, type Status } from '../dashboard/src/domain/constants.ts'
+import { emptyJobDescription, parseJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription.ts'
+import type { LiveApplication } from '../dashboard/src/data/loadApplications.tsx'
 
 type Queryable = Pool | PoolClient
 export type CreateApplicationInput = { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string; jobSections?: Partial<Pick<JobDescription, 'keyRequirements' | 'niceToHave' | 'technologies'>> }
@@ -18,7 +18,14 @@ const optional = <T>(value: T | null): T | undefined => value === null ? undefin
 /** PostgreSQL is the only runtime source of domain data. Files are configuration/static assets. */
 export class PostgresStore {
   private files: Store
-  constructor(public root: string, public pool: Pool) { this.files = new Store(root); setPersonalTimezone(this.timezone()) }
+  public root: string
+  public pool: Pool
+  constructor(root: string, pool: Pool) {
+    this.root = root
+    this.pool = pool
+    this.files = new Store(root)
+    setPersonalTimezone(this.timezone())
+  }
   path(relative: string) { return this.files.path(relative) }
   read(relative: string) {
     if (relative !== '.env') throw new StoreError(400, 'Only configuration may be read from files at runtime')

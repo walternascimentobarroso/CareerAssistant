@@ -1,5 +1,5 @@
-import type { Rate } from './schema'
-import { displayMoney } from './money'
+import type { Rate } from './schema.ts'
+import { displayMoney } from './money.ts'
 
 function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1)

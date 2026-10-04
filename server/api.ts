@@ -1,12 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
-import { STATUSES } from '../dashboard/src/domain/constants'
-import { messageSchema } from '../dashboard/src/domain/messages'
-import { timelineEntrySchema } from '../dashboard/src/domain/schema'
-import { Ai, PROVIDER_IDS } from './ai'
-import { EDITABLE_FIELDS, StoreError } from './store'
-import type { PostgresStore } from './postgres-store'
-import { isoDate } from '../dashboard/src/domain/schema'
+import { STATUSES } from '../dashboard/src/domain/constants.ts'
+import { messageSchema } from '../dashboard/src/domain/messages.ts'
+import { timelineEntrySchema } from '../dashboard/src/domain/schema.ts'
+import { Ai, PROVIDER_IDS } from './ai.ts'
+import { EDITABLE_FIELDS, StoreError } from './store.ts'
+import type { PostgresStore } from './postgres-store.ts'
+import { isoDate } from '../dashboard/src/domain/schema.ts'
 
 const hash = z.string().regex(/^(?:[1-9]\d*|[a-f0-9]{64})$/)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().startsWith(v))

@@ -1,7 +1,7 @@
 import { parseEnv } from 'node:util'
-import { CONTRACT_TYPES, RATE_PERIODS } from '../dashboard/src/domain/constants'
-import { suggestionSchema } from '../dashboard/src/domain/suggestion'
-import { StoreError, revision, type Store } from './store'
+import { CONTRACT_TYPES, RATE_PERIODS } from '../dashboard/src/domain/constants.ts'
+import { suggestionSchema } from '../dashboard/src/domain/suggestion.ts'
+import { StoreError, revision, type Store } from './store.ts'
 
 export const PROVIDERS = {
   groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', keyVariable: 'GROQ_API_KEY', defaultModel: 'openai/gpt-oss-120b' },
@@ -40,7 +40,12 @@ function updateEnv(content: string, values: Record<string, string | undefined>) 
 }
 
 export class Ai {
-  constructor(private store: Pick<Store, 'read' | 'write'>, private fetcher: typeof fetch = fetch) {}
+  private store: Pick<Store, 'read' | 'write'>
+  private fetcher: typeof fetch
+  constructor(store: Pick<Store, 'read' | 'write'>, fetcher: typeof fetch = fetch) {
+    this.store = store
+    this.fetcher = fetcher
+  }
   private envFile() {
     try { return this.store.read(ENV_FILE) }
     catch (error) {
