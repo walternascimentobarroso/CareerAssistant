@@ -8,12 +8,29 @@ import { applicationSchema, isoDate, type ApplicationData, type TimelineEntry } 
 import { slugify, todayIsoDate, setPersonalTimezone } from '../dashboard/src/domain/format.ts'
 import { CLOSED_STATUSES, type Status } from '../dashboard/src/domain/constants.ts'
 import { emptyJobDescription, parseJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription.ts'
+import type { JobPostingCapture, JobPostingProvenance } from '../dashboard/src/domain/jobPosting.ts'
 import type { LiveApplication } from '../dashboard/src/data/loadApplications.tsx'
 
 type Queryable = Pool | PoolClient
-export type CreateApplicationInput = { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string; jobSections?: Partial<Pick<JobDescription, 'keyRequirements' | 'niceToHave' | 'technologies'>> }
+export type CreateApplicationInput = { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string; jobSections?: Partial<Pick<JobDescription, 'keyRequirements' | 'niceToHave' | 'technologies'>>; jobPostingCapture?: JobPostingCapture }
 const identifier = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const JOB_DESCRIPTION_COLUMNS = 'description_md,description_source,description_captured_on,description_input_kind,description_captured_at,description_resolved_url,description_capture_method,description_edited_after_capture'
 const optional = <T>(value: T | null): T | undefined => value === null ? undefined : value
+
+function dateInTimezone(instant: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(instant))
+  const get = (type: string) => parts.find(part => part.type === type)!.value
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+function provenanceFromJob(job: { description_input_kind: 'manual' | 'url' | null; description_captured_at: Date | null; description_resolved_url: string | null; description_capture_method: JobPostingProvenance['method'] | null; description_edited_after_capture: boolean | null }): JobPostingProvenance | undefined {
+  if (!job.description_input_kind || !job.description_captured_at) return undefined
+  return { inputKind:job.description_input_kind, capturedAt:job.description_captured_at.toISOString(), resolvedUrl:optional(job.description_resolved_url), method:optional(job.description_capture_method), edited:optional(job.description_edited_after_capture) }
+}
+function descriptionColumns(description: JobDescription | null, markdown: string | null) {
+  const provenance = description?.provenance
+  return [markdown, description?.source || null, description?.capturedOn && isoDate.safeParse(description.capturedOn).success ? description.capturedOn : null,
+    provenance?.inputKind ?? null, provenance?.capturedAt ?? null, provenance?.resolvedUrl ?? null, provenance?.method ?? null, provenance?.edited ?? null]
+}
 
 /** PostgreSQL is the only runtime source of domain data. Files are configuration/static assets. */
 export class PostgresStore {
@@ -61,7 +78,7 @@ export class PostgresStore {
       return this.application(slug,client)
     })
     this.id(slug)
-    const { rows } = await query.query(`SELECT a.*, j.title,j.contract_type,j.location,j.job_url,j.description_md,j.row_version AS job_revision,c.name AS company
+    const { rows } = await query.query(`SELECT a.*, j.title,j.contract_type,j.location,j.job_url,j.description_md,j.description_input_kind,j.description_captured_at,j.description_resolved_url,j.description_capture_method,j.description_edited_after_capture,j.row_version AS job_revision,c.name AS company
       FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
       WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`, [slug])
     if (!rows.length) throw new StoreError(404, 'Application not found')
@@ -99,7 +116,7 @@ export class PostgresStore {
       return { participants, id:i.id, slug, title:`${i.sequence_number} - ${i.kind}`, documents:paths, status:i.status, date:i.scheduled_on ?? i.starts_at?.toISOString(), revision:String(i.row_version) }
     }))
     return { id:a.id, jobId:a.job_id, slug:a.slug, data, notes:a.notes_md, documents, interviews:interviewViews, revision:String(a.row_version),
-      jobRevision:String(a.job_revision), tasks:tasks.rows.map(t => ({ id:t.id, type:t.type, description:t.description, date:t.due_on, status:t.status, isNext:t.is_next })),
+      jobRevision:String(a.job_revision), jobPostingProvenance:provenanceFromJob(a) ?? null, tasks:tasks.rows.map(t => ({ id:t.id, type:t.type, description:t.description, date:t.due_on, status:t.status, isNext:t.is_next })),
       cvHistory:cvs.rows.map(c => ({ id:c.id, versionId:c.cv_version_id, name:c.name, version:c.version_number, state:c.state, sentOn:c.sent_on, sentAt:c.sent_at?.toISOString() ?? null, content:c.content_md })),
       eventIds:events.rows.map(e => e.id) }
   }
@@ -116,8 +133,8 @@ export class PostgresStore {
     let company = (await client.query('SELECT id FROM companies WHERE name=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE',[data.company])).rows[0]
     if (!company) company = (await client.query('INSERT INTO companies(name) VALUES ($1) RETURNING id',[data.company])).rows[0]
     const description = jobDescriptionMd === undefined ? null : parseJobDescription(jobDescriptionMd)
-    const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,description_md,description_source,description_captured_on)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,jobDescriptionMd ?? null,description?.source || null,description?.capturedOn && isoDate.safeParse(description.capturedOn).success ? description.capturedOn : null])).rows[0]
+    const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,...descriptionColumns(description,jobDescriptionMd ?? null)])).rows[0]
     const base = slugify(`${data.company} ${data.role}`)
     if (!base) throw new StoreError(400,'Company and role need letters or digits')
     let slug = base
@@ -136,10 +153,19 @@ export class PostgresStore {
       const fields = Object.fromEntries(Object.entries(input.fields).filter(([,value]) => value !== null))
       const data = applicationSchema.parse({ ...fields, status:input.applied ? 'applied' : 'interested', applied_at:input.applied ? input.date : undefined,
         timeline:[{ date:input.date,type:'created',description:'Application created' },...(input.applied ? [{ date:input.date,type:'applied',description:'Application submitted' }] : [])] })
-      const jobDescription = input.jobPosting ? serializeJobDescription({ ...emptyJobDescription(), ...input.jobSections, originalText:input.jobPosting, source:data.job_url ?? '', capturedOn:input.date }) : undefined
+      const jobDescription = input.jobPosting ? serializeJobDescription({ ...emptyJobDescription(), ...input.jobSections, originalText:input.jobPosting, ...this.capturedDescription(input.jobPostingCapture,data.job_url) }) : undefined
       const a = await this.insertApplication(client,data,jobDescription)
       return this.application(a.id,client)
     })
+  }
+  /** The capture instant is independent of `input.date`, which may be an old application date. */
+  private capturedDescription(capture: JobPostingCapture | undefined, jobUrl: string | undefined): Pick<JobDescription, 'source' | 'capturedOn' | 'provenance'> {
+    if (capture?.inputKind !== 'url') {
+      const capturedAt = new Date().toISOString()
+      return { source:jobUrl ?? '', capturedOn:dateInTimezone(capturedAt,this.timezone()), provenance:{ inputKind:'manual',capturedAt } }
+    }
+    const capturedAt = new Date(capture.capturedAt).toISOString()
+    return { source:capture.sourceUrl, capturedOn:dateInTimezone(capturedAt,this.timezone()), provenance:{ inputKind:'url',capturedAt,resolvedUrl:capture.resolvedUrl,method:capture.method,edited:capture.edited } }
   }
   private async replaceContact(client: PoolClient, applicationId: string, contact?: ApplicationData['contact']) {
     await client.query('UPDATE application_contacts SET deleted_at=now() WHERE application_id=$1 AND is_primary AND deleted_at IS NULL',[applicationId])
@@ -172,14 +198,14 @@ export class PostgresStore {
         await client.query('SELECT pg_advisory_xact_lock(87314002)')
         let company = (await client.query('SELECT id FROM companies WHERE name=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE',[data.company])).rows[0]
         if (!company) company = (await client.query('INSERT INTO companies(name) VALUES ($1) RETURNING id',[data.company])).rows[0]
-        const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,description_md,description_source,description_captured_on)
-          SELECT $2,$3,$4,$5,$6,description_md,description_source,description_captured_on FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0]
+        const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
+          SELECT $2,$3,$4,$5,$6,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0]
         a.job_id=job.id
       } else if (!isDeepStrictEqual([data.role,data.type,data.location,data.job_url],[before.data.role,before.data.type,before.data.location,before.data.job_url])) {
         const count = await client.query('SELECT 1 FROM applications WHERE job_id=$1 AND id<>$2',[a.job_id,a.id])
         if (count.rowCount) {
-          a.job_id=(await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,description_md,description_source,description_captured_on)
-            SELECT company_id,$2,$3,$4,$5,description_md,description_source,description_captured_on FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0].id
+          a.job_id=(await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
+            SELECT company_id,$2,$3,$4,$5,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0].id
         } else await client.query('UPDATE jobs SET title=$2,contract_type=$3,location=$4,job_url=$5 WHERE id=$1',[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])
       }
       await client.query(`UPDATE applications SET job_id=$2,priority=$3,applied_on=$4,requested_amount=$5,minimum_amount=$6,currency=$7,rate_period=$8,vat=$9,rate_basis=$10 WHERE id=$1`,[a.id,a.job_id,data.priority ?? null,data.applied_at ?? null,data.rate?.requested ?? null,data.rate?.minimum ?? null,data.rate?.currency ?? null,data.rate?.period ?? null,data.rate?.vat ?? null,data.rate ? data.rate.basis ?? 'unknown' : null])
@@ -249,7 +275,12 @@ export class PostgresStore {
       const expected=job.description_md === null ? null : String(job.row_version)
       if (expected !== input.revision) throw new StoreError(409,'Job description changed. Reload before saving.')
       const parsed=parseJobDescription(input.content)
-      await client.query('UPDATE jobs SET description_md=$2,description_source=$3,description_captured_on=$4 WHERE id=$1',[a.job_id,input.content,parsed.source || null, isoDate.safeParse(parsed.capturedOn).success ? parsed.capturedOn : null])
+      // Provenance comes from the stored record, never from the edited document; legacy documents are kept exactly as written.
+      const provenance=provenanceFromJob(job)
+      if (provenance?.inputKind==='url' && parsed.originalText!==parseJobDescription(job.description_md).originalText) provenance.edited=true
+      const description={ ...parsed,provenance }
+      const columns=descriptionColumns(description,provenance ? serializeJobDescription(description) : input.content)
+      await client.query(`UPDATE jobs SET (${JOB_DESCRIPTION_COLUMNS})=($2,$3,$4,$5,$6,$7,$8,$9) WHERE id=$1`,[a.job_id,...columns])
       await client.query('UPDATE applications SET notes_md=notes_md WHERE id=$1',[a.id])
       return this.application(a.id,client)
     })

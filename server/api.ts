@@ -7,6 +7,9 @@ import { Ai, PROVIDER_IDS } from './ai.ts'
 import { EDITABLE_FIELDS, StoreError } from './store.ts'
 import type { PostgresStore } from './postgres-store.ts'
 import { isoDate } from '../dashboard/src/domain/schema.ts'
+import { jobPostingCaptureSchema } from '../dashboard/src/domain/jobPosting.ts'
+import { createJobPostingFetcher, type JobPostingFetcher } from './job-posting-fetcher.ts'
+import { JobPostingError } from './job-posting-text.ts'
 
 const hash = z.string().regex(/^(?:[1-9]\d*|[a-f0-9]{64})$/)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().startsWith(v))
@@ -20,7 +23,9 @@ const fields = z.partialRecord(z.enum(EDITABLE_FIELDS), z.unknown()).refine(valu
 }, 'Monetary amounts must be decimal strings')
 const items = z.array(z.string().min(1)).optional()
 const jobSections = z.strictObject({ keyRequirements: items, niceToHave: items, technologies: items })
-const createApplicationInput = z.strictObject({ fields, applied: z.boolean(), date, jobPosting: content.optional(), jobSections: jobSections.optional() })
+const createApplicationInput = z.strictObject({ fields, applied: z.boolean(), date, jobPosting: content.optional(), jobSections: jobSections.optional(), jobPostingCapture: jobPostingCaptureSchema.optional() })
+  .refine(value => !value.jobPostingCapture || !!value.jobPosting, 'jobPostingCapture requires jobPosting')
+const fetchJobPostingInput = z.strictObject({ url: z.string().trim().min(1) })
 const provider = z.enum(PROVIDER_IDS)
 // Values end up as one line of the .env file, so nothing that could break out of it.
 const envValue = z.string().regex(/^[\w.\-/:]+$/).max(500)
@@ -43,7 +48,7 @@ async function body(req: IncomingMessage) {
   }
   try { return JSON.parse(raw) as unknown } catch { throw new StoreError(400, 'Invalid JSON') }
 }
-export function api(store: PostgresStore, fetcher: typeof fetch = fetch) {
+export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJobPosting: JobPostingFetcher = createJobPostingFetcher()) {
   const ai = new Ai(store, fetcher)
   return async (req: IncomingMessage, res: ServerResponse) => {
     const send = (status: number, value: unknown) => {
@@ -106,8 +111,10 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch) {
       }
       if (collection === 'models' && id && !action && req.method === 'GET') return send(200, await ai.models(provider.parse(id)))
       if (collection === 'extract' && !id && req.method === 'POST') return send(200, await ai.extract(extractInput.parse(await body(req))))
+      if (collection === 'job-postings' && id === 'fetch' && !action && req.method === 'POST') return send(200, await fetchJobPosting(fetchJobPostingInput.parse(await body(req)).url))
       throw new StoreError(404, 'Endpoint not found')
     } catch (error) {
+      if (error instanceof JobPostingError) return send(error.status, { error: error.message, code: error.code })
       if (error instanceof StoreError) return send(error.status, { error: error.message })
       if (error instanceof z.ZodError) return send(422, { error: error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') })
       const code = (error as { code?: string }).code

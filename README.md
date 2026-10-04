@@ -51,7 +51,7 @@ React → local HTTP API → domain operations → PostgreSQL
 ## Using the dashboard
 
 - **Board:** move applications between statuses. A move records the previous and new status atomically; repeated moves to the same status are no-ops. Applying fills the first application date. Closing can retain the next action or cancel it while preserving its history.
-- **New application:** paste a posting, request an AI proposal and review it before saving. Duplicate company/role combinations receive different UUIDs and suffixed slugs.
+- **New application:** import a posting from its link or paste it, review the text, then request an AI proposal (or fill in manually) and review it before saving. Importing uses no AI and saves nothing; the reviewed text and where it came from are stored with the application. Duplicate company/role combinations receive different UUIDs and suffixed slugs.
 - **Application:** edit fields, append notes and events, edit the job description, select or customize a CV, record its submission, complete tasks and add interviews.
 - **Tasks:** overdue, today, upcoming and undated next actions. Completed and cancelled tasks remain in each application's history.
 - **CVs:** edit the master, create base CVs derived from a specific version, import Markdown/plain text and inspect old versions. Each saved change creates an immutable version. Loading an old version into the editor and saving creates a new version.
@@ -73,6 +73,16 @@ CV content, sent CV associations, timeline events and AI analysis results are im
 ## Legacy data
 
 The original Markdown files (`applications/`, `cv/`, `contacts/`, `messages/`) were imported once and removed from the repository. Their exact text remains in the `import_sources` table and in Git history. Legacy rates imported without a known basis (e.g. Coinspaid `75`/`65 EUR/year`) keep `rate_basis = unknown`.
+
+## Importing a posting from a link
+
+`POST /api/job-postings/fetch` downloads a public page on the server and returns plain text for review: a JSON-LD `JobPosting` when the page has one, otherwise the page's main content. It never calls an AI provider and never writes to the database.
+
+- Only `http(s)` links on ports 80/443 without credentials. Local, private and other non-global addresses are refused, on the first request and on each of at most five redirects; the connection goes to the address that was validated.
+- 15 seconds in total, 2 MiB of decompressed content, HTML or plain text only, two imports at a time. No cookies or credentials are sent.
+- Pages that need JavaScript, a login or a human check are not supported; the dashboard then asks you to paste the text. Failures return `{ error, code }` with a stable `code` such as `BLOCKED_DESTINATION`, `FETCH_TIMEOUT` or `NO_JOB_CONTENT`.
+
+Creating the application stores the reviewed text in `jobs.description_md` together with its provenance (`manual` or `url`, capture instant, requested and final link, extraction method, whether the text was edited after import). These values are declared by the client, not an audit trail. Descriptions created before migration `004_job_posting_capture.sql` keep an unknown provenance. Run `npm run db:migrate` after updating.
 
 ## AI configuration
 
@@ -127,6 +137,7 @@ Additional routes:
 | POST | `/api/applications/:id/task-complete` | Complete a task and record an event |
 | POST | `/api/applications/:id/interviews` | Record an interview and participants |
 | POST | `/api/messages/:slug/restore` | Restore a message |
+| POST | `/api/job-postings/fetch` | Fetch a public posting as text to review |
 
 Mutations use JSON. Application mutations require `revision`; CV saves require the current CV revision. Job-description saves use `jobRevision` (or `null` when creating the document). CV selection uses source revision and the displayed application-CV association UUID, not a Markdown hash.
 

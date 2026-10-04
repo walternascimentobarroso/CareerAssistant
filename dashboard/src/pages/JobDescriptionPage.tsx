@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type LiveApplication } from '../data/loadApplications'
 import { todayIsoDate } from '../domain/format'
+import { describeProvenance } from '../domain/jobPosting'
 import { JOB_DESCRIPTION_FILE, LIST_SECTION_LABELS, emptyJobDescription, linesToItems, listSections, parseJobDescription, serializeJobDescription, type JobDescription } from '../domain/jobDescription'
 
 export function JobDescriptionPage() {
@@ -48,6 +49,7 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
         <label>Source (link to the posting)<input type="url" value={description.source} disabled={busy} onChange={e => set({ source: e.target.value })} /></label>
         <label>Captured on<input type="date" value={description.capturedOn} disabled={busy} onChange={e => set({ capturedOn: e.target.value })} /></label>
       </div>
+      {description.provenance && <p className="muted">{describeProvenance(description.provenance)} Changing the text marks it as edited; this record itself is not editable.</p>}
       <label>Original text — paste the full posting, unedited<textarea rows={16} required value={description.originalText} disabled={busy} onChange={e => set({ originalText: e.target.value })} /></label>
       <div className="form-grid">
         {listSections().map(section => <label key={section}>{LIST_SECTION_LABELS[section]} (one per line)<textarea rows={6} value={lists[section]} disabled={busy} onChange={e => { setLists({ ...lists, [section]: e.target.value }); setDirty(true) }} /></label>)}

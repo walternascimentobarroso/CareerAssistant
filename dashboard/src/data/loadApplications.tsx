@@ -2,8 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { setPersonalTimezone } from '../domain/format'
 import type { Application } from '../domain/applications'
 import type { Message } from '../domain/messages'
+import type { JobPostingProvenance } from '../domain/jobPosting'
 export type LiveApplication = Application & {
-  id?: string; jobId?: string; revision: string; jobRevision?: string; eventIds?: string[]
+  id?: string; jobId?: string; revision: string; jobRevision?: string; jobPostingProvenance?: JobPostingProvenance | null; eventIds?: string[]
   tasks?: { id: string; type: string; description: string; date: string | null; status: string; isNext: boolean }[]
   cvHistory?: { id: string; versionId: string; name: string; version: number; state: string; sentOn: string | null; sentAt: string | null; content: string }[]
 }

@@ -12,6 +12,7 @@ import { createPool } from './db/connection'
 import { migrate } from './db/migrate'
 import { PostgresStore } from './postgres-store'
 import { api } from './api'
+import { parseJobDescription, serializeJobDescription } from '../dashboard/src/domain/jobDescription'
 
 const url=process.env.TEST_DATABASE_URL
 const schema=`career_test_${randomUUID().replaceAll('-','')}`
@@ -46,7 +47,7 @@ async function request(method:string,path:string,body?:unknown) {
 }
 test('migrations are transactional and repeatable',integration,async () => {
   assert.deepEqual(await migrate(pool),[])
-  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'3')
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'4')
 })
 test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
   let a=await create()
@@ -193,4 +194,51 @@ test('restore enforces CV dependencies and company deletion respects contacts',i
   const company=(await pool.query("INSERT INTO companies(name) VALUES ('Agency with contact') RETURNING id")).rows[0]
   await pool.query("INSERT INTO contacts(name,company_id) VALUES ('Recruiter',$1)",[company.id])
   await assert.rejects(pool.query('UPDATE companies SET deleted_at=now() WHERE id=$1',[company.id]),{code:'23514'})
+})
+test('job posting capture is stored with the application, kept apart from its date and preserved by copies and edits',integration,async () => {
+  const capture={inputKind:'url',sourceUrl:'https://example.com/jobs/1',resolvedUrl:'https://careers.example.com/jobs/1',capturedAt:'2026-10-04T23:30:00.000Z',method:'json_ld',edited:false} as const
+  const job=async (id:string) => (await pool.query('SELECT * FROM jobs WHERE id=$1',[id])).rows[0]
+  let a=await store.createApplication({fields:{company:'Capture Co',role:'Backend',job_url:'https://example.com/other'},applied:true,date:'2024-01-15',jobPosting:'## Technologies\n\nImported text',jobPostingCapture:capture})
+  let row=await job(a.jobId!)
+  assert.equal(row.description_input_kind,'url');assert.equal(row.description_source,capture.sourceUrl);assert.equal(row.description_resolved_url,capture.resolvedUrl)
+  assert.equal(row.description_captured_at.toISOString(),capture.capturedAt);assert.equal(row.description_capture_method,'json_ld');assert.equal(row.description_edited_after_capture,false)
+  // Europe/Lisbon is already on the next day at this instant; the 2024 application date plays no part.
+  assert.equal((await pool.query('SELECT description_captured_on::text AS day FROM jobs WHERE id=$1',[a.jobId])).rows[0].day,'2026-10-05')
+  assert.equal(a.data.applied_at,'2024-01-15');assert.equal(a.data.job_url,'https://example.com/other')
+  assert.deepEqual(a.jobPostingProvenance,{inputKind:'url',capturedAt:capture.capturedAt,resolvedUrl:capture.resolvedUrl,method:'json_ld',edited:false})
+  const saved=parseJobDescription(a.documents['job-description.md'])
+  assert.equal(saved.originalText,'## Technologies\n\nImported text');assert.deepEqual(saved.technologies,[]);assert.deepEqual(saved.provenance,a.jobPostingProvenance)
+
+  const stale=a.jobRevision!
+  a=(await request('PUT',`/api/applications/${a.id}/job-description`,{revision:stale,content:serializeJobDescription({...saved,source:'https://example.com/moved',provenance:undefined})})).value
+  assert.equal(a.jobPostingProvenance!.edited,false);assert.equal(a.jobPostingProvenance!.resolvedUrl,capture.resolvedUrl)
+  assert.equal((await request('PUT',`/api/applications/${a.id}/job-description`,{revision:stale,content:'# Job Description\n\n## Original text\n\nLost'})).status,409)
+  a=await store.saveJobDescription(a.slug,{revision:a.jobRevision!,content:serializeJobDescription({...saved,originalText:'Rewritten'})})
+  row=await job(a.jobId!)
+  assert.equal(row.description_edited_after_capture,true);assert.equal(row.description_captured_at.toISOString(),capture.capturedAt)
+  assert.equal(parseJobDescription(a.documents['job-description.md']).provenance!.edited,true)
+
+  const before=a.jobId
+  a=await store.updateApplication(a.slug,{revision:a.revision,fields:{company:'Capture Holding'}})
+  assert.notEqual(a.jobId,before);assert.equal(a.jobPostingProvenance!.resolvedUrl,capture.resolvedUrl);assert.equal(a.jobPostingProvenance!.edited,true)
+  const sibling=await pool.query('INSERT INTO applications(job_id,slug,status) VALUES ($1,$2,$3) RETURNING id',[a.jobId,'capture-sibling','interested'])
+  a=await store.updateApplication(a.slug,{revision:a.revision,fields:{role:'Platform'}})
+  assert.notEqual(a.jobId,sibling.rows[0].job_id);assert.equal((await job(a.jobId!)).description_capture_method,'json_ld')
+
+  const before2=Date.now()
+  const manual=await store.createApplication({fields:{company:'Manual Co',role:'Backend',job_url:'https://example.com/manual'},applied:true,date:'2024-01-15',jobPosting:'Pasted text'})
+  row=await job(manual.jobId!)
+  assert.equal(row.description_input_kind,'manual');assert.equal(row.description_source,'https://example.com/manual');assert.equal(row.description_resolved_url,null)
+  assert.ok(row.description_captured_at.getTime()>=before2)
+  const none=await store.createApplication({fields:{company:'No Posting Co',role:'Backend'},applied:false,date:'2026-10-03'})
+  row=await job(none.jobId!)
+  assert.equal(row.description_input_kind,null);assert.equal(row.description_captured_at,null);assert.equal(none.jobPostingProvenance,null)
+  const legacy='# Job Description\n\nSource: https://example.com/legacy\nCaptured on: 2025-03-01\n\n## Original text\n\nLegacy text\n'
+  const edited=await store.saveJobDescription(none.slug,{revision:null,content:legacy})
+  assert.equal(edited.documents['job-description.md'],legacy);assert.equal((await job(none.jobId!)).description_input_kind,null)
+
+  const invalid=[{...capture,inputKind:'manual'},{inputKind:'url',sourceUrl:capture.sourceUrl},{...capture,resolvedUrl:'file:///etc/passwd'},{...capture,method:'guess'}]
+  for (const jobPostingCapture of invalid) assert.equal((await request('POST','/api/applications',{fields:{company:'Bad Capture',role:'Backend'},applied:false,date:'2026-10-03',jobPosting:'Text',jobPostingCapture})).status,422)
+  assert.equal((await request('POST','/api/applications',{fields:{company:'Bad Capture',role:'Backend'},applied:false,date:'2026-10-03',jobPostingCapture:{inputKind:'manual'}})).status,422)
+  await assert.rejects(pool.query("UPDATE jobs SET description_capture_method='html' WHERE id=$1",[none.jobId]),{code:'23514'})
 })
