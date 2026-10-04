@@ -7,11 +7,14 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "validate": "node --import tsx scripts/validate.ts",
     "start": "node --import tsx server/index.ts",
-    "test": "node --import tsx --test server/store.test.ts"
+    "test": "node --import tsx --test server/*.test.ts",
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "test:postgres": "node --import tsx --test server/postgres.test.ts",
+    "db:export": "node --import tsx scripts/export.ts"
   },
   "dependencies": {
+    "pg": "^8.23.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
@@ -21,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

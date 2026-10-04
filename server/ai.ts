@@ -20,7 +20,7 @@ const INSTRUCTIONS = `You extract structured data from a job posting. Reply with
 - location: city, country or "Remote" as written
 - job_url: link to the posting, only if it appears in the text
 - type: one of ${CONTRACT_TYPES.join(', ')}
-- rate: { requested: number, minimum: number, currency: 3-letter code, period: one of ${RATE_PERIODS.join(', ')}, vat: boolean }. For a salary range, requested is the top and minimum is the bottom.
+- rate: { requested: decimal string, minimum: decimal string, currency: 3-letter code, period: one of ${RATE_PERIODS.join(', ')}, vat: boolean }. For a salary range, requested is the top and minimum is the bottom.
 - contact: { name, role, email, phone, linkedin } of the recruiter or hiring contact
 - tags: lowercase technologies and keywords, at most 12
 - keyRequirements: mandatory requirements, one short sentence each
@@ -40,7 +40,7 @@ function updateEnv(content: string, values: Record<string, string | undefined>) 
 }
 
 export class Ai {
-  constructor(private store: Store, private fetcher: typeof fetch = fetch) {}
+  constructor(private store: Pick<Store, 'read' | 'write'>, private fetcher: typeof fetch = fetch) {}
   private envFile() {
     try { return this.store.read(ENV_FILE) }
     catch (error) {

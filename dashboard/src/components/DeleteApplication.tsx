@@ -9,7 +9,7 @@ export function DeleteApplication({ application }: { application: LiveApplicatio
   const navigate = useNavigate()
   async function remove() {
     const { company, role } = application.data
-    if (!window.confirm(`Delete "${company} — ${role}"?\n\nThe folder applications/${application.slug}/ and everything in it is removed from disk. This cannot be undone from the dashboard.`)) return
+    if (!window.confirm(`Remove "${company} — ${role}"?\n\nYou can restore it from Trash.`)) return
     setBusy(true); setMessage('')
     try {
       await request(`/applications/${application.slug}`, 'DELETE', { revision: application.revision })
@@ -17,8 +17,8 @@ export function DeleteApplication({ application }: { application: LiveApplicatio
     } catch (e) { setMessage((e as Error).message); setBusy(false) }
   }
   return <div className="attach-cv">
-    <p className="muted">Registered by mistake or no longer interested? Deleting removes this application and its files for good. To keep a record instead, move it to Archived on the board.</p>
-    <div className="toolbar"><button className="danger" disabled={busy} onClick={() => void remove()}>{busy ? 'Deleting…' : 'Delete application'}</button></div>
+    <p className="muted">Removing hides this application. Its history is preserved and it can be restored from Trash.</p>
+    <div className="toolbar"><button className="danger" disabled={busy} onClick={() => void remove()}>{busy ? 'Deleting…' : 'Remove application'}</button></div>
     <p role="status">{message}</p>
   </div>
 }

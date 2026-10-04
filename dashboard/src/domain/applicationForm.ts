@@ -15,6 +15,7 @@ export type ApplicationFormValues = {
   rateCurrency: string
   ratePeriod: string
   rateVat: boolean
+  rateBasis: string
   contactName: string
   contactRole: string
   contactEmail: string
@@ -43,6 +44,7 @@ export function formFromApplication(data?: ApplicationData): ApplicationFormValu
     rateCurrency: data?.rate?.currency ?? '',
     ratePeriod: data?.rate?.period ?? RATE_PERIODS[1],
     rateVat: data?.rate?.vat ?? false,
+    rateBasis: data?.rate?.basis ?? 'personal_expectation',
     contactName: data?.contact?.name ?? '',
     contactRole: data?.contact?.role ?? '',
     contactEmail: data?.contact?.email ?? '',
@@ -69,6 +71,7 @@ export function formFromSuggestion(suggestion: Suggestion): ApplicationFormValue
     rateCurrency: suggestion.rate?.currency ?? '',
     ratePeriod: suggestion.rate?.period ?? blank.ratePeriod,
     rateVat: suggestion.rate?.vat ?? false,
+    rateBasis: 'advertised_range',
     contactName: suggestion.contact?.name ?? '',
     contactRole: suggestion.contact?.role ?? '',
     contactEmail: suggestion.contact?.email ?? '',
@@ -82,7 +85,7 @@ export function changedKeys(before: ApplicationFormValues, after: ApplicationFor
   return (Object.keys(after) as (keyof ApplicationFormValues)[]).filter((key) => before[key] !== after[key])
 }
 
-/** `null` means "remove this field from the file"; optional fields are never written empty. */
+/** `null` means "remove this field"; optional fields are never written empty. */
 export function fieldsFromForm(form: ApplicationFormValues, initial?: ApplicationData) {
   return {
     company: form.company.trim(),
@@ -117,8 +120,9 @@ function rateFromForm(form: ApplicationFormValues, initial?: ApplicationData) {
   // An explicit `vat: false` already in the file is kept instead of being silently dropped.
   const vat = form.rateVat || initial?.rate?.vat !== undefined ? form.rateVat : undefined
   return {
-    requested: optionalNumber(form.rateRequested),
-    minimum: optionalNumber(form.rateMinimum),
+    requested: optionalAmount(form.rateRequested),
+    minimum: optionalAmount(form.rateMinimum),
+    basis: form.rateBasis,
     currency: form.rateCurrency.trim().toUpperCase(),
     period: form.ratePeriod,
     vat,
@@ -150,6 +154,6 @@ function optionalText(text: string) {
   return text.trim() || undefined
 }
 
-function optionalNumber(text: string) {
-  return text === '' ? undefined : Number(text)
+function optionalAmount(text: string) {
+  return text === '' ? undefined : text.trim()
 }

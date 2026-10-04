@@ -84,7 +84,7 @@ export function NewApplicationPage() {
   return <article className="detail">
     <Link to="/" className="back">← Board</Link>
     <h1>New application</h1>
-    <p className="muted">Step 2 of 2. {slug ? `Will be saved in applications/${slug}/ and that name never changes.` : 'Fill in company and role.'} Leave "Applied on" empty if you have not applied yet.</p>
+    <p className="muted">Step 2 of 2. {slug ? `Application identifier: ${slug}. A suffix is added if needed.` : 'Fill in company and role.'} Leave "Applied on" empty if you have not applied yet.</p>
     <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void create() }}>
       <ApplicationForm value={form} errors={errors} disabled={busy} suggested={suggested} onChange={edit} />
       {jobPosting.trim() && <fieldset>

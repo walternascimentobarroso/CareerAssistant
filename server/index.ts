@@ -2,10 +2,12 @@ import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { api } from './api'
-import { Store } from './store'
+import { PostgresStore } from './postgres-store'
+import { createPool } from './db/connection'
 
 const root = resolve(import.meta.dirname, '..')
-const store = new Store(root)
+const pool = createPool(root)
+const store = new PostgresStore(root, pool)
 const handler = api(store)
 createServer((req, res) => {
   if (req.url?.startsWith('/api/')) { void handler(req, res); return }
@@ -18,3 +20,5 @@ createServer((req, res) => {
     res.end(readFileSync(file))
   } catch { res.writeHead(404); res.end('Not found') }
 }).listen(Number(process.env.PORT ?? 3000), '127.0.0.1', () => console.log('Career Assistant: http://127.0.0.1:' + (process.env.PORT ?? 3000)))
+
+process.on('SIGTERM', () => { void pool.end().then(() => process.exit(0)) })

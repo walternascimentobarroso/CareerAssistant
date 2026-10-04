@@ -1,4 +1,5 @@
 import { ApplicationsProvider } from './data/loadApplications'
+import { TrashPage } from './pages/TrashPage'
 import { CvPage } from './pages/CvPage'
 import { HashRouter, Route, Routes } from 'react-router'
 import { Layout } from './components/Layout'
@@ -19,6 +20,7 @@ export function App() {
         <Route element={<Layout />}>
           <Route index element={<KanbanPage />} />
           <Route path="cvs" element={<CvPage />} />
+          <Route path="trash" element={<TrashPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="messages" element={<MessagesPage />} />
           <Route path="new" element={<NewApplicationPage />} />

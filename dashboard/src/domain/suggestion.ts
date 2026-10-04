@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import { decimalAmount } from './money'
 import { CONTRACT_TYPES, RATE_PERIODS } from './constants'
 
 // Lenient on purpose: a model's answer is a proposal to review, so a bad value is dropped instead of failing the whole extraction.
 const text = z.string().trim().min(1).optional().catch(undefined)
-const amount = z.number().positive().optional().catch(undefined)
+const amount = decimalAmount.optional().catch(undefined)
 const list = z
   .array(z.unknown())
   .catch([])

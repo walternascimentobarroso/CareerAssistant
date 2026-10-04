@@ -1,3 +1,5 @@
+import { ApplicationHistory } from '../components/ApplicationHistory'
+import { InterviewForm } from '../components/InterviewForm'
 import { AddNote } from '../components/AddNote'
 import { AddTimelineEvent } from '../components/AddTimelineEvent'
 import { AttachCv } from '../components/AttachCv'
@@ -10,12 +12,12 @@ import { NextActionBox } from '../components/NextActionBox'
 import { useApplications } from '../data/loadApplications'
 import type { Application } from '../domain/applications'
 import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
-import { INITIAL_STATUS, STATUS_LABELS } from '../domain/constants'
+import { STATUS_LABELS } from '../domain/constants'
 import { formatDate, formatRate, humanize } from '../domain/format'
 
 const TOP_LEVEL_DOCUMENTS = [
   { path: JOB_DESCRIPTION_FILE, label: 'Job Description' },
-  { path: 'cv.md', label: 'CV sent' },
+  { path: 'cv.md', label: 'CV document' },
 ]
 
 export function ApplicationPage() {
@@ -57,6 +59,7 @@ export function ApplicationPage() {
       <div className="detail-grid">
         {data.rate && (
           <Section title="Rate">
+            <p className="muted">Basis: {humanize(data.rate.basis ?? 'unknown')}</p>
             {data.rate.requested !== undefined && <p>Requested: {formatRate(data.rate.requested, data.rate)}</p>}
             {data.rate.minimum !== undefined && <p>Minimum: {formatRate(data.rate.minimum, data.rate)}</p>}
           </Section>
@@ -82,14 +85,17 @@ export function ApplicationPage() {
 
         <Section title="Interviews">
           <InterviewLinks application={application} />
+          <InterviewForm application={application} />
         </Section>
       </div>
+
+      <ApplicationHistory application={application} />
 
       <Section title="Timeline">
         {timeline.length === 0 && <p className="muted">No events yet.</p>}
         <ol className="timeline">
           {timeline.map((entry) => (
-            <li key={`${entry.date}-${entry.description}`}>
+            <li key={application.eventIds?.[data.timeline.indexOf(entry)] ?? `${data.timeline.indexOf(entry)}`}>
               <span className="timeline-date">{formatDate(entry.date)}</span>
               <span className="badge">{humanize(entry.type)}</span>
               <span>{entry.description}</span>
@@ -120,11 +126,9 @@ export function ApplicationPage() {
         <AddNote application={application} />
       </Section>
 
-      {data.status === INITIAL_STATUS && (
-        <Section title="Delete">
+      <Section title="Remove">
           <DeleteApplication application={application} />
-        </Section>
-      )}
+      </Section>
     </article>
   )
 }
@@ -160,7 +164,8 @@ function InterviewLinks({ application }: { application: Application }) {
     <ul className="links">
       {application.interviews.map((interview) => (
         <li key={interview.slug}>
-          {interview.title}
+          {interview.title}{interview.status ? ` · ${interview.status}` : ''}{interview.date ? ` · ${interview.date}` : ''}
+          {interview.participants?.map((participant,index)=><p key={index} className="muted">{participant.name}{participant.role ? ` (${participant.role})` : ''}</p>)}
           {interview.documents.map((path) => (
             <Link key={path} to={`/applications/${application.slug}/doc/${path}`} className="interview-document">
               {documentName(path)}

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decimalAmount, legacyDecimal } from './money'
 import { CONTRACT_TYPES, PRIORITIES, RATE_PERIODS, STATUSES } from './constants'
 
 function isIsoDate(value: string) {
@@ -7,14 +8,15 @@ function isIsoDate(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value)
 }
 
-const isoDate = z.string().refine(isIsoDate, 'expected a real date as YYYY-MM-DD')
+export const isoDate = z.string().refine(isIsoDate, 'expected a real date as YYYY-MM-DD')
 
 const rateSchema = z.strictObject({
-  requested: z.number().positive().optional(),
-  minimum: z.number().positive().optional(),
+  requested: z.preprocess(legacyDecimal, decimalAmount).optional(),
+  minimum: z.preprocess(legacyDecimal, decimalAmount).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/, 'expected a 3-letter currency code like EUR'),
   period: z.enum(RATE_PERIODS),
   vat: z.boolean().optional(),
+  basis: z.enum(['personal_expectation', 'advertised_range', 'unknown']).optional(),
 })
 
 const contactSchema = z.strictObject({

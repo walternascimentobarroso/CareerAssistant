@@ -1,0 +1,172 @@
+import { test, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import pg from 'pg'
+import { randomUUID } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Readable } from 'node:stream'
+import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createPool } from './db/connection'
+import { migrate } from './db/migrate'
+import { PostgresStore } from './postgres-store'
+import { api } from './api'
+
+const url=process.env.TEST_DATABASE_URL
+const schema=`career_test_${randomUUID().replaceAll('-','')}`
+let admin:pg.Pool, pool:pg.Pool, store:PostgresStore, root:string
+before(async () => {
+  if (!url) return
+  root=mkdtempSync(join(tmpdir(),'career-pg-'))
+  admin=createPool(root,url)
+  await admin.query(`CREATE SCHEMA ${schema}`)
+  pool=new pg.Pool({connectionString:url,options:`-c search_path=${schema},public -c timezone=UTC`})
+  store=new PostgresStore(root,pool)
+  await migrate(pool)
+})
+after(async () => {
+  if (!url) return
+  await pool?.end()
+  await admin?.query(`DROP SCHEMA ${schema} CASCADE`)
+  await admin?.end()
+  if (root) rmSync(root,{recursive:true,force:true})
+})
+const integration={skip:!url}
+async function create(company='Acme') {
+  return store.createApplication({fields:{company,role:'Backend',next_action:{type:'apply',description:'Send application'},rate:{requested:'75000.1250',minimum:'65000',currency:'EUR',period:'year'}},applied:false,date:'2026-10-03',jobPosting:'Original posting'})
+}
+async function request(method:string,path:string,body?:unknown) {
+  const req=Readable.from(body===undefined ? []:[JSON.stringify(body)]) as IncomingMessage
+  req.method=method;req.url=path;req.headers={host:'localhost:5173','content-type':'application/json'}
+  let status=0,value=''
+  const res={writeHead(code:number){status=code},end(text:string){value=text}} as unknown as ServerResponse
+  await api(store)(req,res)
+  return {status,value:JSON.parse(value)}
+}
+test('migrations are transactional and repeatable',integration,async () => {
+  assert.deepEqual(await migrate(pool),[])
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'2')
+})
+test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
+  let a=await create()
+  const b=await create()
+  assert.notEqual(a.id,b.id);assert.notEqual(a.slug,b.slug)
+  assert.equal(a.data.rate?.requested,'75000.1250')
+  const prior=a.revision
+  const results=await Promise.allSettled([
+    store.status(a.slug,{revision:prior,status:'applied',date:'2026-10-03'}),
+    store.status(a.slug,{revision:prior,status:'offer',date:'2026-10-03'}),
+  ])
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1)
+  a=await store.application(a.slug)
+  assert.equal(a.data.timeline.filter(e=>e.type==='status_changed').length,1)
+  assert.equal(a.data.applied_at,'2026-10-03')
+  const again=await store.status(a.slug,{revision:a.revision,status:a.data.status,date:'2026-10-03'})
+  assert.equal(again.revision,a.revision)
+  await assert.rejects(store.updateApplication(a.slug,{revision:prior,fields:{role:'Lost edit'}}))
+  assert.equal((await request('PATCH',`/api/applications/${a.id}/status`,{revision:a.revision,status:'applied',date:'2026-02-30'})).status,422)
+})
+test('CV ancestry and sent snapshots survive edits, customization and reselection',integration,async () => {
+  const master=await store.saveCv('master','# Original master',null)
+  const backend=await store.saveCv('backend','# Backend',null,{derivedFromVersionId:master.versionId})
+  let a=await create('CV Co')
+  a=await store.attachCv(a.slug,{name:'backend',revision:a.revision,sourceRevision:backend.revision,cvRevision:null})
+  a=await store.customizeCv(a.slug,{revision:a.revision,sourceVersionId:backend.versionId,content:'# Tailored for CV Co'})
+  const tailored=a.cvHistory!.find(c=>c.state==='selected')!
+  a=await store.sendCv(a.slug,{revision:a.revision,versionId:tailored.versionId,date:'2026-10-03'})
+  const updated=await store.saveCv('backend','# Backend changed',backend.revision)
+  a=await store.attachCv(a.slug,{name:'backend',revision:a.revision,sourceRevision:updated.revision,cvRevision:tailored.id})
+  const sent=a.cvHistory!.filter(c=>c.state==='sent')
+  assert.equal(sent.length,1);assert.equal(sent[0].content,'# Tailored for CV Co')
+  assert.equal(a.documents['cv.md'],'# Backend changed')
+  await assert.rejects(pool.query('UPDATE cv_versions SET content_md=$2 WHERE id=$1',[tailored.versionId,'# overwrite']),{code:'23514'})
+  await assert.rejects(pool.query('UPDATE application_cvs SET cv_version_id=$2 WHERE id=$1',[sent[0].id,updated.versionId]),{code:'23514'})
+  await assert.rejects(pool.query('UPDATE cv_versions SET deleted_at=now() WHERE id=$1',[backend.versionId]),{code:'23514'})
+  const foreign=await store.saveCv('foreign','# Other',null)
+  await assert.rejects(pool.query('UPDATE cvs SET current_version_id=$2 WHERE id=$1',[master.id,foreign.versionId]),{code:'23503'})
+  assert.equal((await store.cvVersions('backend')).length,2)
+})
+test('soft delete hides all child views; restore does not revive individually deleted children',integration,async () => {
+  let a=await create('Trash Co')
+  a=await store.createInterview(a.slug,{revision:a.revision,kind:'technical',status:'completed',date:'2026-10-03',transcript:'Exact transcript',participants:[{name:'Recruiter'}]})
+  const task=a.tasks![0]
+  await pool.query('UPDATE tasks SET deleted_at=now() WHERE id=$1',[task.id])
+  await store.deleteApplication(a.slug,{revision:a.revision})
+  await assert.rejects(store.application(a.id!))
+  assert.equal((await store.applications()).applications.some(row=>row.id===a.id),false)
+  const removed=(await store.trash()).find(row=>row.id===a.id)
+  a=await store.restoreApplication(a.id!,{revision:String(removed.revision)})
+  assert.equal(a.tasks!.length,0)
+  assert.equal(a.interviews.length,1)
+  assert.equal(a.documents['interviews/01-technical/transcript.md'],'Exact transcript')
+  await store.deleteApplication(a.slug,{revision:a.revision})
+  await assert.rejects(pool.query("INSERT INTO tasks(application_id,type,description,status) VALUES ($1,'apply','Hidden','pending')",[a.id]),{code:'23514'})
+})
+test('shared parent protection, task completion, event ownership, date checks and immutable timeline',integration,async () => {
+  let a=await create('Protected Co')
+  const b=await create('Other Co')
+  const company=(await pool.query('SELECT company_id FROM jobs WHERE id=$1',[a.jobId])).rows[0].company_id
+  await assert.rejects(pool.query('UPDATE companies SET deleted_at=now() WHERE id=$1',[company]),{code:'23514'})
+  await assert.rejects(pool.query('UPDATE jobs SET deleted_at=now() WHERE id=$1',[a.jobId]),{code:'23514'})
+  const task=a.tasks![0]
+  a=await store.completeTask(a.slug,{revision:a.revision,taskId:task.id})
+  assert.equal(a.data.next_action,undefined);assert.equal(a.tasks![0].status,'completed')
+  await assert.rejects(pool.query("INSERT INTO application_events(application_id,sequence_number,type,description,occurred_on,task_id) VALUES ($1,99,'task','wrong','2026-10-03',$2)",[b.id,task.id]),{code:'23503'})
+  await assert.rejects(pool.query("INSERT INTO application_events(application_id,sequence_number,type,description) VALUES ($1,99,'missing','date')",[a.id]),{code:'23514'})
+  await assert.rejects(pool.query('UPDATE application_events SET description=$2 WHERE id=$1',[a.eventIds![0],'rewritten']),{code:'23514'})
+  await assert.rejects(pool.query('UPDATE applications SET requested_amount=$2 WHERE id=$1',[a.id,'NaN']),{code:'23514'})
+})
+test('messages retain identity and restore; API rejects stale writes and cross-origin requests',integration,async () => {
+  const message=await store.createMessage({title:'Follow up',content:'Hello\n\nThanks.'})
+  await store.deleteMessage(message.slug,{revision:String(message.revision)})
+  assert.equal((await store.messages()).messages.some(m=>m.id===message.id),false)
+  const row=(await pool.query('SELECT row_version FROM message_templates WHERE id=$1',[message.id])).rows[0]
+  const restored=await store.restoreMessage(message.slug,{revision:String(row.row_version)})
+  assert.equal(restored.id,message.id);assert.equal(restored.content,message.content)
+  assert.equal((await request('PUT',`/api/messages/${message.slug}`,{title:'Lost',content:'Lost',revision:String(message.revision)})).status,409)
+})
+test('HTTP API serves PostgreSQL data and supports CV selection and submission with UUID association tokens',integration,async () => {
+  const server=createServer(api(store))
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
+  const address=server.address() as {port:number}
+  const base=`http://127.0.0.1:${address.port}`
+  const call=async (path:string,method='GET',body?:unknown) => {
+    const response=await fetch(base+'/api'+path,{method,headers:body ? {'Content-Type':'application/json'}:{},body:body ? JSON.stringify(body):undefined})
+    return {status:response.status,body:await response.json()}
+  }
+  try {
+    assert.equal((await call('/config')).body.timezone,'Europe/Lisbon')
+    const created=await call('/applications','POST',{fields:{company:'HTTP Co',role:'Backend',rate:{requested:'123.4567',currency:'EUR',period:'hour'}},applied:false,date:'2026-10-03'})
+    assert.equal(created.status,201)
+    let a=created.body
+    const cv=(await call('/cvs','POST',{name:'http-base',content:'# HTTP CV'})).body
+    a=(await call(`/applications/${a.id}/cv`,'POST',{name:cv.name,revision:a.revision,sourceRevision:cv.revision,cvRevision:null})).body
+    assert.equal(a.cvHistory[0].state,'selected')
+    const first=a.cvHistory[0]
+    const again=await call(`/applications/${a.id}/cv`,'POST',{name:cv.name,revision:a.revision,sourceRevision:cv.revision,cvRevision:first.id})
+    assert.equal(again.status,200);a=again.body
+    const sent=await call(`/applications/${a.id}/cv-send`,'POST',{revision:a.revision,versionId:cv.versionId,date:'2026-10-03'})
+    assert.equal(sent.status,200)
+    assert.equal(sent.body.cvHistory.filter((row:{state:string})=>row.state==='sent').length,1)
+    const bad=await call('/applications','POST',{fields:{company:'Bad Decimal',role:'Backend',rate:{requested:123.4,currency:'EUR',period:'hour'}},applied:false,date:'2026-10-03'})
+    assert.equal(bad.status,422)
+    const cross=await fetch(base+'/api/applications',{headers:{Origin:'https://example.com'}})
+    assert.equal(cross.status,403)
+  } finally { await new Promise<void>((resolve,reject)=>server.close(error=>error ? reject(error):resolve())) }
+})
+
+test('restore enforces CV dependencies and company deletion respects contacts',integration,async () => {
+  const cv=await store.saveCv('restore-base','# Restore base',null)
+  let a=await create('Restore Dependency Co')
+  a=await store.attachCv(a.slug,{name:cv.name,revision:a.revision,sourceRevision:cv.revision,cvRevision:null})
+  await store.deleteApplication(a.slug,{revision:a.revision})
+  await pool.query('UPDATE cvs SET deleted_at=now() WHERE id=$1',[cv.id])
+  const removed=(await store.trash()).find(item=>item.id===a.id)
+  await assert.rejects(store.restoreApplication(a.id!,{revision:String(removed.revision)}),{code:'23514'})
+  await pool.query('UPDATE cvs SET deleted_at=NULL WHERE id=$1',[cv.id])
+  assert.equal((await store.restoreApplication(a.id!,{revision:String(removed.revision)})).id,a.id)
+  const company=(await pool.query("INSERT INTO companies(name) VALUES ('Agency with contact') RETURNING id")).rows[0]
+  await pool.query("INSERT INTO contacts(name,company_id) VALUES ('Recruiter',$1)",[company.id])
+  await assert.rejects(pool.query('UPDATE companies SET deleted_at=now() WHERE id=$1',[company.id]),{code:'23514'})
+})

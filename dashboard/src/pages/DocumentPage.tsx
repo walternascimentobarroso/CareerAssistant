@@ -16,7 +16,7 @@ export function DocumentPage() {
         ← {application.data.company} — {application.data.role}
       </Link>
       <p className="muted">
-        applications/{application.slug}/{path}
+        {application.data.company} / {path}
       </p>
       {path === JOB_DESCRIPTION_FILE && <Link to={`/applications/${application.slug}/job-description`}>Edit job description</Link>}
       <div className="markdown">

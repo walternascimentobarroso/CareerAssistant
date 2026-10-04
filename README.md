@@ -1,169 +1,133 @@
 # Career Assistant
 
-A personal, Markdown-first tracker for a job search: applications, job descriptions, CVs, interviews, next actions and history, all as plain files in a Git repository, with a small dashboard and local file-based backend on top.
+Personal job-search tracker with a React dashboard, local Node.js API and **PostgreSQL as the source of truth**. Job descriptions, CVs, transcripts, summaries and notes remain Markdown text stored in PostgreSQL. Binary files live outside the database.
 
-## Philosophy
+## Setup
 
-```text
-Markdown = DATA
-Git      = HISTORY
-React    = VIEW
-AI       = ASSISTANT
+Requires Node.js 22+ and PostgreSQL 18 (or Docker Compose).
+
+```bash
+npm install
+docker compose up -d
 ```
 
-- The Markdown files are the only source of truth. There is no database.
-- The dashboard reads and writes Markdown through a local API. Delete `dashboard/` tomorrow and every piece of data is still usable.
-- The structure is predictable so that AI agents such as Claude Code can read and edit it directly. Their rules are in [CLAUDE.md](CLAUDE.md).
+Add these entries to `.env`, preserving any existing AI credentials:
+
+```dotenv
+DATABASE_URL=postgresql://career_assistant:career_assistant_local@127.0.0.1:5433/career_assistant
+APP_TIMEZONE=Europe/Lisbon
+```
+
+`.env.example` contains the configuration reference. The Compose database binds only to localhost, uses a persistent named volume and accepts an optional `POSTGRES_PASSWORD` override. Match that password in `DATABASE_URL`.
+
+```bash
+npm run db:migrate
+npm run dev                   # dashboard + API at http://localhost:5173
+```
+
+For production:
+
+```bash
+npm run build
+npm start                     # http://127.0.0.1:3000
+```
+
+Migrations are explicit, transactional and checksum-checked. Startup does not apply migrations automatically. A missing `DATABASE_URL` fails startup; there is no file-storage fallback.
 
 ## Architecture
 
 ```text
-applications/**/*.md        source of truth
-        │
-        ▼
-frontmatter parser (yaml) + schema (Zod)      dashboard/src/domain/
-        │
-        ▼
-normalized data ──► Kanban ──► Application detail ──► Markdown documents
-        └─────────► Tasks
+React → local HTTP API → domain operations → PostgreSQL
+                                               ├─ structured relations
+                                               ├─ Markdown TEXT
+                                               └─ file references / metadata
 ```
 
-A local Node.js API reads Markdown from disk and validates writes using the shared schema. The frontend fetches current data rather than bundling documents. No database or persistent cache is used. `npm run validate` uses the same parser and schema from Node.
-
-## Installation
-
-Requires Node.js 22 or newer.
-
-```bash
-npm install
-```
-
-## Development
-
-```bash
-npm run dev        # dashboard + API at http://localhost:5173
-npm run validate   # check every application
-npm run build      # type-check and build the dashboard into dist/
-npm start          # local production server at http://127.0.0.1:3000
-npm test           # persistence and conflict tests
-```
-
-## File structure
-
-```text
-applications/
-  <company-role>/
-    application.md          structured data (YAML frontmatter) + free notes
-    job-description.md
-    cv.md                   the CV sent for this application
-    interviews/
-      01-recruiter/
-        summary.md
-        transcript.md
-      02-technical/
-cv/
-  master.md                 complete CV
-  backend.md, devops.md, security.md
-contacts/                   optional notes about people
-messages/
-  <slug>.md                 reusable message: `title` in the frontmatter, text in the body
-templates/                  application.md, job-description.md, interview-summary.md
-server/                     local API, validation and atomic file writes
-dashboard/                  React interface
-  src/domain/               constants, schema, parsing (shared with the validator)
-scripts/validate.ts
-CLAUDE.md                   conventions for AI agents
-```
-
-The full field reference for `application.md` is in [CLAUDE.md](CLAUDE.md#applicationmd-schema). Allowed statuses, priorities and contract types are defined once in [dashboard/src/domain/constants.ts](dashboard/src/domain/constants.ts).
-
-## Adding an application
-
-In the dashboard, open **New application**. Step 1: paste the posting text and click **Extract fields**; the chosen AI model proposes company, role, location, contract type, rate, contact, tags and the job description lists. Step 2: review the form (fields filled by AI are highlighted), adjust and click **Create application**. Nothing is written until then. **Fill in manually** skips the AI. The folder name is derived from company and role and never changes. To do the same by hand:
-
-```bash
-mkdir applications/acme-senior-backend-engineer
-cp templates/application.md applications/acme-senior-backend-engineer/application.md
-cp templates/job-description.md applications/acme-senior-backend-engineer/job-description.md
-```
-
-Fill in the files and run `npm run validate`. Or ask Claude Code: *"Create an application for this job description."*
-
-## Recording an interview
-
-```bash
-mkdir -p applications/acme-senior-backend-engineer/interviews/01-recruiter
-cp templates/interview-summary.md applications/acme-senior-backend-engineer/interviews/01-recruiter/summary.md
-```
-
-Put the raw transcript in `transcript.md` next to it, then add a `timeline` entry and update `status` and `next_action` in `application.md`.
+- [server/postgres-store.ts](server/postgres-store.ts) implements transactional operations and active-record queries.
+- [server/db/migrations/](server/db/migrations/) contains the schema, constraints, indexes and lifecycle protections.
+- [server/store.ts](server/store.ts) holds shared errors and the guarded file access used only for `.env` and static assets.
+- [dashboard/src/domain/](dashboard/src/domain/) shares validation, Markdown parsers, exact decimal rules and display helpers.
 
 ## Using the dashboard
 
-- **Board**: one column per status, one card per application, with priority, contract type, rate and the next action. Overdue actions are red, today's are amber.
-- **Tasks**: derived from each application's `next_action`, grouped into Overdue, Today, Upcoming and No date. There is no separate task list to maintain.
-- **Application page**: rate, contact, next action, documents, interviews, timeline and notes. Document links render the Markdown files.
+- **Board:** move applications between statuses. A move records the previous and new status atomically; repeated moves to the same status are no-ops. Applying fills the first application date. Closing can retain the next action or cancel it while preserving its history.
+- **New application:** paste a posting, request an AI proposal and review it before saving. Duplicate company/role combinations receive different UUIDs and suffixed slugs.
+- **Application:** edit fields, append notes and events, edit the job description, select or customize a CV, record its submission, complete tasks and add interviews.
+- **Tasks:** overdue, today, upcoming and undated next actions. Completed and cancelled tasks remain in each application's history.
+- **CVs:** edit the master, create base CVs derived from a specific version, import Markdown/plain text and inspect old versions. Each saved change creates an immutable version. Loading an old version into the editor and saving creates a new version.
+- **CV history:** selection and submission are separate operations. Selecting another version preserves prior submissions. Tailored CVs point to the exact source version. Legacy copies are marked as having unknown submission provenance.
+- **Interviews:** record type, date, participants, notes, transcript and summary. The API also accepts timestamps with explicit offsets and an IANA timezone. Analyses and external attachments have dedicated schema support; automatic transcription and AI interview processing are not implemented.
+- **Messages:** reusable plain-text templates, with optimistic concurrency and soft delete. Restore is available through the API.
+- **Trash:** restore removed applications. Restoration does not reactivate individually removed children.
 
-Move cards by dragging them between columns. Each move saves the status and appends a timeline event; the first move to Applied also fills `applied_at`. Closing an application lets you retain or remove the pending next action.
+Dates without a known time remain `DATE`. Instants use `TIMESTAMPTZ`. `APP_TIMEZONE` controls calendar-day display and due dates. Monetary API values are decimal strings, stored as `NUMERIC(19,4)` without JavaScript floating-point conversions. Rate basis distinguishes personal expectations, advertised ranges and unknown legacy values.
 
-On an application page, **Edit application** opens a form for the frontmatter fields (job, rate, contact, next action, tags). **Add event** appends to the timeline and **Add note** appends to the notes; past events and existing notes are never rewritten from the browser. An application still in **Interested** can be deleted from its page (red button, with confirmation); this removes its folder from disk, so only Git can bring it back, and only if it was committed. Later stages are closed with Rejected or Archived instead. **Edit job description** (or **Add job description**) opens a form with one field per section of `job-description.md`; content the form has no field for is kept under "Other content". Applications with invalid Markdown are hidden and listed in a banner at the top with the reason.
+## Soft delete and historical records
 
-## Validating
+All domain tables have UUID identifiers and `created_at`, `updated_at`, `deleted_at`. Normal queries exclude removed records and children of removed application/interview parents.
 
-```bash
-npm run validate
-```
+Application removal preserves its children. Slugs remain reserved after removal. Restoration may fail if necessary shared references were removed; restore those dependencies first. Companies and jobs with active dependencies cannot be removed. CV versions that are current, origins of other versions or referenced by application CV records are protected.
 
-Reports, per application: missing `application.md`, missing or broken frontmatter, missing `company` or `role`, invalid status, invalid dates, invalid `rate` structure, and unknown fields. Exits with code 1 when something is invalid.
+CV content, sent CV associations, timeline events and AI analysis results are immutable at the database level. New versions or corrective events preserve the original records. Mutable writes use `row_version` and reject stale revisions with HTTP 409.
 
-## Demo data
+## Legacy data
 
-The `applications/example-*` folders are fictional. Remove them with:
+The original Markdown files (`applications/`, `cv/`, `contacts/`, `messages/`) were imported once and removed from the repository. Their exact text remains in the `import_sources` table and in Git history. Legacy rates imported without a known basis (e.g. Coinspaid `75`/`65 EUR/year`) keep `rate_basis = unknown`.
 
-```bash
-rm -rf applications/example-*
-```
+## AI configuration
 
-## Roadmap
+Groq and Gemini extraction uses their OpenAI-compatible interfaces. Settings stores provider keys and defaults in `.env`; keys stay on the server. Only the posting supplied for extraction is sent to the provider. Existing CVs, transcripts and notes are not sent automatically.
 
-Not implemented on purpose:
-
-- CV generation: job description + master CV → AI → customized `cv.md` → PDF
-- Interview processing: audio → transcription → `transcript.md` → AI analysis → `summary.md`
-- Interview preparation from the job description, the CV sent and previous interviews
-- Completing tasks from the dashboard
-- History of completed actions
-- Integrations: calendar, email, transcription, job boards
-
-## AI settings
-
-Extraction uses Groq or Gemini through their OpenAI-compatible APIs. Open **Settings** to paste API keys, test them and choose the default provider and model; the provider and model can also be changed per extraction on the New application page. Settings live in `.env` at the project root, which Git ignores:
-
-```bash
+```dotenv
 GROQ_API_KEY=...
 GEMINI_API_KEY=...
-AI_PROVIDER=groq          # optional, groq is the default
-AI_MODEL=...              # optional, each provider has a default
+AI_PROVIDER=groq
+AI_MODEL=...
 ```
 
-Keys never leave the server: the browser only learns whether a key is saved. Only the posting text you paste is sent to the provider; CVs, notes and interviews never are.
+## Verification
 
-## Managing CVs
+```bash
+npm run build
+npm test
+```
 
-Open **CVs** to edit the master, create base versions, import `.md`/`.txt` files or paste text, and preview Markdown before saving. Add real experience to `cv/master.md` first; base versions must use facts from the master. PDF/DOCX extraction is not included.
+PostgreSQL integration tests need a disposable test database:
 
-On an application page, select a base CV and attach a copy. It becomes `applications/<slug>/cv.md`, with `cv: ./cv.md` in the application frontmatter. Changes to the base do not affect the copy. Replacing an existing CV after the interested stage requires checking explicit authorization.
+```bash
+TEST_DATABASE_URL=postgresql://postgres:password@127.0.0.1:55433/career_test npm test
+```
 
-## Reusable messages
+Tests create isolated schemas, run migrations and clean up those schemas. Without `TEST_DATABASE_URL`, integration tests are reported as skipped. They verify concurrency, decimal precision, immutable versions, CV ancestry and submissions, FK ownership, soft delete and restore.
 
-Open **Messages** to keep the texts you send again and again (a reply to a recruiter, a follow-up, a rate answer). Each one is a card in a responsive grid with **Copy**, **Edit** and **Delete**; clicking the card opens the full text with the same actions. Deleting asks for confirmation and removes the file, so only Git can bring it back. Each message is `messages/<slug>.md`; the slug comes from the first title and does not change when the title is edited. The text is copied exactly as written, without Markdown rendering.
+Export a read-only Markdown snapshot to a new directory:
 
-## Persistence and local operation
+```bash
+npm run db:export -- --output ./exports/new-directory
+```
 
-The API detects stale edits using content hashes and saves files with atomic replacement. Application notes and unrelated YAML fields are preserved; timeline events are appended. No Git commits are made automatically. Writes to a CV and its application reference include rollback on ordinary failures; they are not a crash-proof transaction across two files.
+The parent directory must exist; the exporter refuses an existing destination. It exports active documents, available CV versions and messages, not a complete database backup.
 
-Use **Reload files**, reload a CV from disk, or return focus to the window to refresh application data after external edits. Conflicting saves are rejected so you can reload and reconcile changes. CVs load when their management page opens.
+Back up PostgreSQL with `pg_dump` and back up externally stored binaries separately. Git is code history; it is not the operational data backup. Do not remove the Compose volume without a database backup.
 
-The backend is intended for a single local user. Production binds to `127.0.0.1` and rejects cross-origin API access. Do not expose it publicly without adding authentication and deployment hardening. `vite preview` previews only static assets; use `npm start` for the working production app.
+## API
 
-API routes: `GET /api/applications`, `POST /api/applications`, `GET /api/applications/:slug`, `PATCH /api/applications/:slug`, `DELETE /api/applications/:slug`, `PATCH /api/applications/:slug/status`, `POST /api/applications/:slug/notes`, `PUT /api/applications/:slug/job-description`, `GET /api/cvs`, `GET /api/cvs/:name`, `POST /api/cvs`, `PUT /api/cvs/:name`, `POST /api/applications/:slug/cv`, `GET /api/messages`, `POST /api/messages`, `PUT /api/messages/:slug`, `DELETE /api/messages/:slug`, `GET`/`PUT /api/settings`, `GET /api/models/:provider` and `POST /api/extract`. Mutation requests use JSON and include revisions for existing files.
+Existing application, CV, message, settings, model-listing and extraction routes remain available. Application and CV reads expose UUIDs and revision tokens; application routes accept either UUID or preserved slug.
+
+Additional routes:
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/config` | Personal timezone |
+| GET | `/api/trash` | Removed applications and restore revisions |
+| POST | `/api/applications/:id/restore` | Restore an application |
+| GET | `/api/cvs/:name/versions` | Immutable CV version history |
+| POST | `/api/applications/:id/cv-customize` | Create and select a tailored version |
+| POST | `/api/applications/:id/cv-send` | Record submission of a selected version |
+| POST | `/api/applications/:id/task-complete` | Complete a task and record an event |
+| POST | `/api/applications/:id/interviews` | Record an interview and participants |
+| POST | `/api/messages/:slug/restore` | Restore a message |
+
+Mutations use JSON. Application mutations require `revision`; CV saves require the current CV revision. Job-description saves use `jobRevision` (or `null` when creating the document). CV selection uses source revision and the displayed application-CV association UUID, not a Markdown hash.
+
+The server binds to `127.0.0.1` and rejects cross-origin API access. It remains a personal local application.

@@ -40,10 +40,11 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
     <fieldset>
       <legend>Salary or rate</legend>
       <div className="form-grid">
-        {input('rateRequested', 'Requested', 'rate.requested', { type: 'number', min: 0 })}
-        {input('rateMinimum', 'Minimum', 'rate.minimum', { type: 'number', min: 0 })}
+        {input('rateRequested', 'Requested', 'rate.requested', { type: 'text', inputMode: 'decimal' })}
+        {input('rateMinimum', 'Minimum', 'rate.minimum', { type: 'text', inputMode: 'decimal' })}
         {select('rateCurrency', 'Currency', 'rate.currency', currencies, Object.fromEntries(currencies.map(code => [code, currencyLabel(code)])), true)}
         {select('ratePeriod', 'Per', 'rate.period', RATE_PERIODS, null, false)}
+        {select('rateBasis', 'Amount basis', 'rate.basis', ['personal_expectation','advertised_range','unknown'], {personal_expectation:'Personal expectation',advertised_range:'Advertised range',unknown:'Unknown'}, false)}
         <label><input type="checkbox" checked={value.rateVat} disabled={disabled} onChange={e => set({ rateVat: e.target.checked })} /> Plus VAT</label>
       </div>
     </fieldset>

@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: career_assistant
+      POSTGRES_USER: career_assistant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-career_assistant_local}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - career_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U career_assistant -d career_assistant"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  career_postgres:

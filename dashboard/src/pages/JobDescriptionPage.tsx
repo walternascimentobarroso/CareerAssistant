@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useUnsavedGuard } from '../components/useUnsavedGuard'
-import { request, revisionOf, useApplications, type LiveApplication } from '../data/loadApplications'
+import { request, useApplications, type LiveApplication } from '../data/loadApplications'
 import { todayIsoDate } from '../domain/format'
 import { JOB_DESCRIPTION_FILE, LIST_SECTION_LABELS, emptyJobDescription, linesToItems, listSections, parseJobDescription, serializeJobDescription, type JobDescription } from '../domain/jobDescription'
 
@@ -35,7 +35,7 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
     try {
       const items = Object.fromEntries(listSections().map(section => [section, linesToItems(lists[section])]))
       const content = serializeJobDescription({ ...description, ...items })
-      await request(`${page}/job-description`, 'PUT', { content, revision: opened === undefined ? null : await revisionOf(opened) })
+      await request(`${page}/job-description`, 'PUT', { content, revision: opened === undefined ? null : application.jobRevision })
       await reload(); setDirty(false); navigate(`${page}/doc/${JOB_DESCRIPTION_FILE}`)
     } catch (e) { setMessage((e as Error).message) }
     finally { setBusy(false) }

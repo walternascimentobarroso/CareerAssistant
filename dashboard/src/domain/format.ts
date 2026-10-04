@@ -1,6 +1,7 @@
 import type { Rate } from './schema'
+import { displayMoney } from './money'
 
-export function capitalize(text: string) {
+function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
@@ -23,10 +24,9 @@ export function formatDate(isoDate: string) {
 }
 
 export function todayIsoDate() {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: personalTimezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const get = (type: string) => parts.find(part => part.type === type)!.value
+  return `${get('year')}-${get('month')}-${get('day')}`
 }
 
 export function currencyLabel(code: string) {
@@ -36,11 +36,9 @@ export function currencyLabel(code: string) {
   return [code, '—', symbol !== code && symbol, name !== code && name].filter(Boolean).join(' ')
 }
 
-export function formatRate(amount: number, rate: Rate) {
-  const money = new Intl.NumberFormat('en', {
-    style: 'currency',
-    currency: rate.currency,
-    maximumFractionDigits: 0,
-  }).format(amount)
-  return `${money}/${rate.period}${rate.vat ? ' + VAT' : ''}`
+export function formatRate(amount: string, rate: Rate) {
+  return `${displayMoney(amount, rate.currency)}/${rate.period}${rate.vat ? ' + VAT' : ''}`
 }
+
+let personalTimezone = 'Europe/Lisbon'
+export function setPersonalTimezone(value: string) { new Intl.DateTimeFormat('en', { timeZone:value }); personalTimezone=value }
