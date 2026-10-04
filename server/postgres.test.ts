@@ -46,7 +46,7 @@ async function request(method:string,path:string,body?:unknown) {
 }
 test('migrations are transactional and repeatable',integration,async () => {
   assert.deepEqual(await migrate(pool),[])
-  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'2')
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'3')
 })
 test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
   let a=await create()
@@ -86,6 +86,30 @@ test('CV ancestry and sent snapshots survive edits, customization and reselectio
   const foreign=await store.saveCv('foreign','# Other',null)
   await assert.rejects(pool.query('UPDATE cvs SET current_version_id=$2 WHERE id=$1',[master.id,foreign.versionId]),{code:'23503'})
   assert.equal((await store.cvVersions('backend')).length,2)
+})
+test('permanent deletion only purges trash, rejects stale revisions and preserves shared data',integration,async () => {
+  let a=await create('Permanent Trash Co')
+  const other=await create('Permanent Trash Co')
+  a=await store.createInterview(a.slug,{revision:a.revision,kind:'technical',status:'completed',date:'2026-10-03',participants:[{name:'Recruiter'}]})
+  const interview=(await pool.query('SELECT id FROM interviews WHERE application_id=$1',[a.id])).rows[0]
+  await pool.query("INSERT INTO interview_analyses(interview_id,input_sha256,summary_md) VALUES ($1,$2,'Analysis')",[interview.id,'a'.repeat(64)])
+  await pool.query("INSERT INTO attachments(interview_id,kind,storage_uri,original_filename) VALUES ($1,'transcript','local:test','transcript.txt')",[interview.id])
+  assert.equal((await request('DELETE',`/api/trash/${a.id}`,{revision:a.revision})).status,404)
+  await assert.rejects(pool.query('DELETE FROM application_events WHERE application_id=$1',[a.id]),{code:'23514'})
+  await store.deleteApplication(a.id!,{revision:a.revision})
+  const removed=(await store.trash()).find(row=>row.id===a.id)
+  assert.equal((await request('DELETE',`/api/trash/${a.id}`,{revision:a.revision})).status,409)
+  assert.equal((await request('DELETE',`/api/trash/${a.id}`,{revision:String(removed.revision)})).status,200)
+  for (const table of ['applications','application_events','interviews','tasks','application_cvs','application_contacts','application_tags']) {
+    const column=table==='applications' ? 'id' : 'application_id'
+    assert.equal((await pool.query(`SELECT count(*) FROM ${table} WHERE ${column}=$1`,[a.id])).rows[0].count,'0')
+  }
+  for (const table of ['interview_participants','interview_analyses','attachments']) {
+    assert.equal((await pool.query(`SELECT count(*) FROM ${table} WHERE interview_id=$1`,[interview.id])).rows[0].count,'0')
+  }
+  assert.equal((await store.trash()).some(row=>row.id===a.id),false)
+  await assert.rejects(store.restoreApplication(a.id!,{revision:String(removed.revision)}),{status:404})
+  assert.equal((await store.application(other.id!)).id,other.id)
 })
 test('soft delete hides all child views; restore does not revive individually deleted children',integration,async () => {
   let a=await create('Trash Co')

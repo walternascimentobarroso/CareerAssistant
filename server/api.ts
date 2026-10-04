@@ -62,6 +62,7 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch) {
       if (req.method !== 'GET' && !req.headers['content-type']?.startsWith('application/json')) throw new StoreError(415, 'Use application/json')
       if (collection === 'config' && req.method === 'GET' && !id) return send(200, { timezone:store.timezone() })
       if (collection === 'trash' && req.method === 'GET' && !id) return send(200, await store.trash())
+      if (collection === 'trash' && id && !action && req.method === 'DELETE') return send(200, await store.permanentlyDeleteApplication(id, deleteInput.parse(await body(req))))
       if (collection === 'applications' && id && req.method === 'POST') {
         if (action === 'restore') return send(200, await store.restoreApplication(id, deleteInput.parse(await body(req))))
         if (action === 'cv-send') return send(200, await store.sendCv(id, z.strictObject({ revision:hash, versionId:z.uuid(), date:isoDate, channel:z.string().optional() }).parse(await body(req))))

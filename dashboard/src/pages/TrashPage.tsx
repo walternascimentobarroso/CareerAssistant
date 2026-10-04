@@ -15,9 +15,16 @@ export function TrashPage() {
     catch (e) { setMessage((e as Error).message) }
     finally { setBusy(false) }
   }
-  return <article className="detail"><h1>Trash</h1><p>Removed applications retain their documents and history.</p>
+  async function removePermanently(item:RemovedApplication) {
+    if (!window.confirm(`Permanently delete "${item.slug}"?\n\nIts documents and history will be removed from the database. This cannot be undone.`)) return
+    setBusy(true); setMessage('')
+    try { await request(`/trash/${item.id}`,'DELETE',{revision:String(item.revision)}); await load(); setMessage('Application permanently deleted.') }
+    catch (e) { setMessage((e as Error).message) }
+    finally { setBusy(false) }
+  }
+  return <article className="detail"><h1>Trash</h1><p>Removed applications retain their documents and history until permanently deleted.</p>
     {items.length===0 && <p>No removed applications.</p>}
-    {items.map(item=><div className="toolbar" key={item.id}><span>{item.slug}</span><button disabled={busy} onClick={()=>void restore(item)}>Restore</button></div>)}
+    {items.map(item=><div className="toolbar" key={item.id}><span>{item.slug}</span><button disabled={busy} onClick={()=>void restore(item)}>Restore</button><button className="danger" disabled={busy} onClick={()=>void removePermanently(item)}>Delete permanently</button></div>)}
     <p role="status">{message}</p>
   </article>
 }

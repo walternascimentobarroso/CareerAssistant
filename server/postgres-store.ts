@@ -211,6 +211,22 @@ export class PostgresStore {
   async trash() {
     return (await this.pool.query('SELECT id,slug,status,row_version AS revision,deleted_at FROM applications WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')).rows
   }
+  async permanentlyDeleteApplication(slug: string, input: { revision: string }) {
+    return transaction(this.pool, async client => {
+      const a=await this.lockedApplication(client,slug,input.revision,true)
+      // Remove references before their targets; shared CVs, jobs and contacts remain.
+      await client.query('DELETE FROM application_events WHERE application_id=$1',[a.id])
+      await client.query('DELETE FROM attachments WHERE application_id=$1 OR interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
+      await client.query('DELETE FROM interview_analyses WHERE interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
+      await client.query('DELETE FROM interview_participants WHERE interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
+      for (const table of ['interviews','tasks','application_cvs','application_contacts','application_tags']) {
+        await client.query(`DELETE FROM ${table} WHERE application_id=$1`,[a.id])
+      }
+      await client.query('DELETE FROM import_sources WHERE entity_type=$1 AND entity_id=$2',['application',a.id])
+      await client.query('DELETE FROM applications WHERE id=$1',[a.id])
+      return { id:a.id,slug:a.slug }
+    })
+  }
   async restoreApplication(slug: string, input: { revision: string }) {
     return transaction(this.pool, async client => {
       const a=await this.lockedApplication(client,slug,input.revision,true)
