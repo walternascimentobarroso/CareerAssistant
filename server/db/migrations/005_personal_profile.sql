@@ -16,7 +16,7 @@ CREATE TABLE personal_profiles (
 CREATE UNIQUE INDEX personal_profiles_single_active ON personal_profiles ((true)) WHERE deleted_at IS NULL;
 CREATE TABLE personal_profile_work_authorizations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), profile_id UUID NOT NULL REFERENCES personal_profiles(id),
-  country TEXT NOT NULL CHECK (country ~ '^[A-Z]{2}$'), authorization TEXT NOT NULL DEFAULT 'unknown' CHECK (authorization IN ('authorized','not_authorized','unknown')),
+  country TEXT NOT NULL CHECK (country ~ '^[A-Z]{2}$'), "authorization" TEXT NOT NULL DEFAULT 'unknown' CHECK ("authorization" IN ('authorized','not_authorized','unknown')),
   sponsorship TEXT NOT NULL DEFAULT 'unknown' CHECK (sponsorship IN ('yes','no','unknown')), notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ
 );

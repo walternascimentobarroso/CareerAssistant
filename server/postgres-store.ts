@@ -76,7 +76,7 @@ export class PostgresStore {
     for (const key of Object.keys(personalProfileSchema.shape).filter(k => !['workAuthorizations','languages','contractPreferences'].includes(k))) {
       fields[key] = row[key.replace(/[A-Z]/g, c => '_' + c.toLowerCase())]
     }
-    const authorizations = await query.query('SELECT country,authorization,sponsorship,notes FROM personal_profile_work_authorizations WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
+    const authorizations = await query.query('SELECT country,"authorization",sponsorship,notes FROM personal_profile_work_authorizations WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
     const languages = await query.query('SELECT code,level FROM personal_profile_languages WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
     const contracts = await query.query('SELECT contract_type FROM personal_profile_contract_preferences WHERE profile_id=$1 AND deleted_at IS NULL ORDER BY created_at,id', [row.id])
     return { profile: { ...personalProfileSchema.parse({ ...fields, workAuthorizations: authorizations.rows, languages: languages.rows, contractPreferences: contracts.rows.map(r => r.contract_type) }), id: row.id, revision: String(row.row_version) } }
@@ -108,8 +108,8 @@ export class PostgresStore {
           const items = list.items as Record<string, unknown>[]
           await client.query(`UPDATE ${list.table} SET deleted_at=clock_timestamp() WHERE profile_id=$1 AND deleted_at IS NULL AND NOT (${list.key}=ANY($2::text[]))`, [id,items.map(item => item[list.key])])
           for (const item of items) {
-            await client.query(`INSERT INTO ${list.table} (profile_id,${list.columns.join(',')}) VALUES ($1,${list.columns.map((_,i) => `$${i+2}`).join(',')})
-              ON CONFLICT (profile_id,${list.key}) WHERE deleted_at IS NULL DO UPDATE SET ${list.columns.map(c => `${c}=EXCLUDED.${c}`).join(',')}`, [id,...list.columns.map(c => item[c])])
+            await client.query(`INSERT INTO ${list.table} (profile_id,${list.columns.map(c => `"${c}"`).join(',')}) VALUES ($1,${list.columns.map((_,i) => `$${i+2}`).join(',')})
+              ON CONFLICT (profile_id,${list.key}) WHERE deleted_at IS NULL DO UPDATE SET ${list.columns.map(c => `"${c}"=EXCLUDED."${c}"`).join(',')}`, [id,...list.columns.map(c => item[c])])
           }
         }
         return this.personalProfile(client)
