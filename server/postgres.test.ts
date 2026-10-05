@@ -393,3 +393,42 @@ test('knowledge base and application preparation keep snapshots, scoped memory, 
   assert.equal((await pool.query('SELECT count(*) FROM application_preparations WHERE id=$1', [id])).rows[0].count, '0')
   assert.equal((await pool.query('SELECT count(*) FROM application_answers WHERE preparation_id=$1', [id])).rows[0].count, '0')
 })
+
+
+test('singular preparation routes and partial patches preserve revisions and ownership', integration, async () => {
+  const fields = { concept: 'availability.notice', question: 'Notice period?', language: 'en', category: 'availability', answer: { type: 'text', value: 'Two weeks' }, context: [], aliases: [], confirmed: true }
+  const created = await request('POST', '/api/knowledge', fields)
+  assert.equal(created.status, 201)
+  const entry = created.value
+  assert.deepEqual((await request('GET', `/api/knowledge/${entry.id}`)).value, entry)
+  assert.equal((await request('GET', `/api/knowledge/${randomUUID()}`)).status, 404)
+  const changed = await request('PATCH', `/api/knowledge/${entry.id}`, { revision: entry.revision, confirmed: false })
+  assert.equal(changed.status, 200)
+  assert.equal(changed.value.confirmed, false)
+  assert.deepEqual(changed.value.answer, fields.answer)
+  assert.equal((await request('PATCH', `/api/knowledge/${entry.id}`, { revision: entry.revision, question: 'Changed' })).status, 409)
+  assert.equal((await request('PATCH', `/api/knowledge/${entry.id}`, { question: 'Changed' })).status, 422)
+
+  const application = await create('Singular preparation')
+  const path = `/api/applications/${application.id}/preparation`
+  assert.deepEqual((await request('GET', path)).value, { preparation: null })
+  const started = await request('POST', path)
+  assert.equal(started.status, 200)
+  assert.equal((await request('POST', path)).value.preparation.id, started.value.preparation.id)
+  let p = (await store.addPreparationAnswer(started.value.preparation.id, { question: 'Notice period?', concept: 'availability.notice', type: 'text', options: [], required: true, revision: started.value.preparation.revision })).preparation
+  const answerPath = `${path}/answers/${p.answers[0].id}`
+  const saved = await request('PATCH', answerPath, { revision: p.revision, answer: fields.answer, approval: 'accepted' })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.value.preparation.answers[0].source, 'USER')
+  assert.equal(saved.value.preparation.answers[0].question, 'Notice period?')
+  assert.equal((await request('PATCH', answerPath, { revision: p.revision, approval: 'pending' })).status, 409)
+  p = saved.value.preparation
+  assert.equal((await request('PATCH', answerPath, { revision: p.revision, type: 'single_select' })).status, 422)
+  assert.equal((await request('PATCH', answerPath, { revision: p.revision, answer: null })).status, 400)
+  const other = await create('Different preparation owner')
+  await store.startPreparation(other.slug)
+  assert.equal((await request('PATCH', `/api/applications/${other.id}/preparation/answers/${p.answers[0].id}`, { revision: '1', approval: 'pending' })).status, 404)
+  assert.deepEqual((await request('GET', path)).value.preparation, p)
+  await store.deleteApplication(application.slug, { revision: application.revision })
+  assert.equal((await request('PATCH', answerPath, { revision: p.revision, approval: 'pending' })).status, 404)
+})

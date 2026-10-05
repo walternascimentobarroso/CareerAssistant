@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { AnswerInput } from '../components/AnswerInput'
-import { useUnsavedGuard } from '../components/useUnsavedGuard'
+import { confirmDiscard, useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type Cv, type LiveApplication } from '../data/loadApplications'
 import { humanize } from '../domain/format'
 import { ANSWER_TYPES, KNOWLEDGE_CATEGORIES, SCOPE_TYPES, formatAnswer, type AnswerType, type AnswerValue, type ScopeType } from '../domain/knowledge'
@@ -64,8 +64,10 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
   const revision = preparation.revision
   const summary = preparationSummary(preparation)
   const set = (changes: Partial<Draft>) => setDraft(current => current && { ...current, ...changes })
-  const versions = [...(application.cvHistory ?? []).map(cv => ({ versionId: cv.versionId, name: cv.name, version: cv.version })), ...cvs.map(cv => ({ versionId: cv.versionId!, name: cv.name, version: cv.version! }))]
+  const versions = [...(preparation.cv ? [preparation.cv] : []), ...(application.cvHistory ?? []).map(cv => ({ versionId: cv.versionId, name: cv.name, version: cv.version })),
+    ...cvs.flatMap(cv => cv.versionId && cv.version !== undefined ? [{ versionId: cv.versionId, name: cv.name, version: cv.version }] : [])]
     .filter((cv, index, all) => all.findIndex(other => other.versionId === cv.versionId) === index)
+  const selectedCvVersionId = cvVersionId || preparation.cv?.versionId || ''
 
   async function saveContext(current: Context) {
     const saved = await run(() => request<Loaded>(path, 'PUT', { country: current.country.trim() || null, language: current.language, cvRequired: current.cvRequired, revision }), 'Context saved.')
@@ -110,9 +112,9 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
 
     <section className="detail-section"><h2>CV version</h2>
       <div className="inline-form">
-        <label>Version to send<select value={cvVersionId} disabled={busy} onChange={e => setCvVersionId(e.target.value)}><option value="">Select a version</option>
+        <label>Version to send<select value={selectedCvVersionId} disabled={busy} onChange={e => setCvVersionId(e.target.value)}><option value="">Select a version</option>
           {versions.map(cv => <option key={cv.versionId} value={cv.versionId}>{cv.name} v{cv.version}</option>)}</select></label>
-        <button disabled={busy || !cvVersionId} onClick={() => void run(() => request<Loaded>(`${path}/select-cv`, 'POST', { cvVersionId, revision }), 'CV version fixed. Later CV edits do not change it.')}>Use this version</button>
+        <button disabled={busy || !selectedCvVersionId} onClick={() => void run(() => request<Loaded>(`${path}/select-cv`, 'POST', { cvVersionId: selectedCvVersionId, revision }), 'CV version fixed. Later CV edits do not change it.')}>Use this version</button>
       </div>
     </section>
 
@@ -164,7 +166,7 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
         {draft.scopes.length === 0 && <p role="alert">No restriction: this answer will be reused in every application.</p>}
         </fieldset>}
       </>}
-      <div className="toolbar"><button>{busy ? 'Saving…' : 'Save'}</button><button type="button" onClick={() => setDraft(null)}>Cancel</button></div>
+      <div className="toolbar"><button>{busy ? 'Saving…' : 'Save'}</button><button type="button" onClick={() => { if (confirmDiscard(true)) setDraft(null) }}>Cancel</button></div>
     </fieldset></form>}
   </article>
 }

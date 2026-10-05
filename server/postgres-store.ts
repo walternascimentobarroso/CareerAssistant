@@ -1,5 +1,6 @@
 import { personalProfileSchema, savePersonalProfileSchema, type PersonalProfile, type PersonalProfileFields } from '../dashboard/src/domain/personalProfile.ts'
 import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import type { Pool, PoolClient } from 'pg'
 import { isDeepStrictEqual } from 'node:util'
 import { stringify } from 'yaml'
@@ -11,8 +12,8 @@ import { CLOSED_STATUSES, type Status } from '../dashboard/src/domain/constants.
 import { emptyJobDescription, parseJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription.ts'
 import type { JobPostingCapture, JobPostingProvenance } from '../dashboard/src/domain/jobPosting.ts'
 import type { LiveApplication } from '../dashboard/src/data/loadApplications.tsx'
-import { answerValueSchema, contextKey, normalizeText, type KnowledgeEntry, type KnowledgeFields, type Restriction } from '../dashboard/src/domain/knowledge.ts'
-import { answerFits, type Preparation, type PreparationAnswer, type Requirement, type ResolutionContext, type SaveAnswer } from '../dashboard/src/domain/applicationPreparation.ts'
+import { knowledgeFieldsSchema, saveKnowledgeSchema, answerValueSchema, contextKey, normalizeText, type KnowledgeEntry, type KnowledgeFields, type Restriction } from '../dashboard/src/domain/knowledge.ts'
+import { saveAnswerSchema, answerFits, type Preparation, type PreparationAnswer, type Requirement, type ResolutionContext, type SaveAnswer } from '../dashboard/src/domain/applicationPreparation.ts'
 import { contextValues, resolveAnswer } from './application-answer-resolver.ts'
 
 type Queryable = Pool | PoolClient
@@ -475,6 +476,22 @@ export class PostgresStore {
     return { entries:rows.map(row => ({ id:row.id,revision:String(row.row_version),concept:row.concept,question:row.question,language:row.language,category:row.category,
       answer:answerValueSchema.parse(row.answer),context:row.context,aliases:row.aliases,confirmed:row.confirmed_at!==null,origin:row.origin,confirmedAt:row.confirmed_at?.toISOString() ?? null })) }
   }
+  async knowledgeEntry(id: string, query: Queryable = this.pool) {
+    const entry = (await this.knowledge(query, id)).entries[0]
+    if (!entry) throw new StoreError(404, 'Knowledge entry not found')
+    return entry
+  }
+  async patchKnowledge(id: string, input: unknown) {
+    const patch = knowledgeFieldsSchema.partial().extend({ revision: saveKnowledgeSchema.shape.revision }).parse(input)
+    return transaction(this.pool, async client => {
+      await client.query('SELECT id FROM knowledge_entries WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [id])
+      const current = await this.knowledgeEntry(id, client)
+      const { id: _id, revision: _revision, origin: _origin, confirmedAt: _confirmedAt, ...existing } = current
+      const { revision: _expected, ...changes } = patch
+      const fields = knowledgeFieldsSchema.parse({ ...existing, ...changes })
+      return this.writeKnowledge(client, id, fields, patch.revision)
+    })
+  }
   private async writeKnowledge(client: PoolClient, id: string | null, fields: KnowledgeFields, expected?: string) {
     const values=[fields.concept,fields.question,fields.language,fields.category,JSON.stringify(fields.answer),JSON.stringify(fields.context),contextKey(fields.context),fields.confirmed]
     const saved=await (id===null
@@ -562,11 +579,26 @@ export class PostgresStore {
       return this.revisedPreparation(client,id)
     })
   }
+  async patchApplicationPreparationAnswer(applicationId: string, answerId: string, input: unknown) {
+    return this.writePreparationAnswer(applicationId, answerId, input, true)
+  }
   async savePreparationAnswer(id: string, answerId: string, input: SaveAnswer) {
+    return this.writePreparationAnswer(id, answerId, input, false)
+  }
+  private async writePreparationAnswer(id: string, answerId: string, raw: unknown, byApplication: boolean) {
     return transaction(this.pool,async client => {
-      const p=await this.lockedPreparation(client,id,input.revision)
+      const patch = z.strictObject(saveAnswerSchema.shape).partial().required({ revision: true }).parse(raw)
+      if (byApplication) {
+        const application = await this.lockedApplication(client, id)
+        const preparation = (await client.query('SELECT id FROM application_preparations WHERE application_id=$1 AND deleted_at IS NULL', [application.id])).rows[0]
+        if (!preparation) throw new StoreError(404, 'Preparation not found')
+        id = preparation.id
+      }
+      const p=await this.lockedPreparation(client,id,patch.revision)
       const current=(await client.query('SELECT * FROM application_answers WHERE id=$1 AND preparation_id=$2 AND deleted_at IS NULL',[answerId,id])).rows[0]
       if (!current) throw new StoreError(404,'Question not found')
+      const view = answerView(current)
+      const input = saveAnswerSchema.parse({ question: view.question, concept: view.concept, type: view.type, options: view.options, required: view.required, answer: view.answer, approval: view.approval, ...patch })
       if (input.answer && !answerFits(input,input.answer)) throw new StoreError(400,'The answer does not fit this field type or its options')
       const accepted=input.approval==='accepted'
       if (accepted && !input.answer) throw new StoreError(400,'Only an answer can be accepted')

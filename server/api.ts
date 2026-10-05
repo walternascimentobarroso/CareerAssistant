@@ -66,8 +66,8 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) throw new StoreError(403, 'Origin not allowed')
       if (req.headers['sec-fetch-site'] === 'cross-site') throw new StoreError(403, 'Origin not allowed')
       const segments = new URL(req.url!, 'http://localhost').pathname.split('/').filter(Boolean).map(decodeURIComponent)
-      const [, collection, id, action, target] = segments
-      if (segments[0] !== 'api' || segments.length > (collection === 'preparations' ? 5 : 4)) throw new StoreError(404, 'Endpoint not found')
+      const [, collection, id, action, target, answerId] = segments
+      if (segments[0] !== 'api' || segments.length > (collection === 'preparations' ? 5 : collection === 'applications' && action === 'preparation' ? 6 : 4)) throw new StoreError(404, 'Endpoint not found')
       if (req.method !== 'GET' && !req.headers['content-type']?.startsWith('application/json')) throw new StoreError(415, 'Use application/json')
       if (collection === 'profile' && !id) {
         if (req.method === 'GET') return send(200, await store.personalProfile())
@@ -78,12 +78,16 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
         }
       }
       if (collection === 'knowledge' && !action) {
-        if (req.method === 'GET' && !id) return send(200, await store.knowledge())
+        if (req.method === 'GET') return send(200, id ? await store.knowledgeEntry(z.uuid().parse(id)) : await store.knowledge())
         if (req.method === 'POST' && !id) return send(201, await store.saveKnowledge(null, knowledgeFieldsSchema.parse(await body(req))))
+        if (req.method === 'PATCH' && id) return send(200, await store.patchKnowledge(z.uuid().parse(id), await body(req)))
         if (req.method === 'PUT' && id) return send(200, await store.saveKnowledge(z.uuid().parse(id), saveKnowledgeSchema.parse(await body(req))))
         if (req.method === 'DELETE' && id) return send(200, await store.deleteKnowledge(z.uuid().parse(id), revisionSchema.parse(await body(req))))
       }
-      if (collection === 'applications' && id && action === 'preparations') {
+      if (collection === 'applications' && id && action === 'preparation' && target === 'answers' && answerId && segments.length === 6 && req.method === 'PATCH') {
+        return send(200, await store.patchApplicationPreparationAnswer(id, z.uuid().parse(answerId), await body(req)))
+      }
+      if (collection === 'applications' && id && (action === 'preparations' || action === 'preparation') && !target) {
         if (req.method === 'GET') return send(200, await store.preparation(id))
         if (req.method === 'POST') return send(200, await store.startPreparation(id))
       }

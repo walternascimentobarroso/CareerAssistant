@@ -100,7 +100,7 @@ export function KnowledgePage() {
         <label>Contract type<select value={draft.contractType} onChange={e => set({ contractType: e.target.value })}><option value="">Any</option>{CONTRACT_TYPES.map(t => <option key={t}>{t}</option>)}</select></label>
       </div>{draft.linked.length > 0 && <p className="muted">Also limited to {scopeLabel(draft.linked, applications)}.</p>}</fieldset>
       <label><input type="checkbox" checked={draft.confirmed} onChange={e => set({ confirmed: e.target.checked })} />I confirm this answer is correct (unconfirmed answers are never reused)</label>
-      <div className="toolbar"><button disabled={busy}>{busy ? 'Saving…' : 'Save answer'}</button><button type="button" onClick={() => setDraft(null)}>Cancel</button></div>
+      <div className="toolbar"><button disabled={busy}>{busy ? 'Saving…' : 'Save answer'}</button><button type="button" onClick={() => { if (confirmDiscard(true)) setDraft(null) }}>Cancel</button></div>
       </fieldset>
     </form>}
     {visible.length === 0 && <p className="muted">No answers found.</p>}
