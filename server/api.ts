@@ -11,6 +11,8 @@ import { isoDate } from '../dashboard/src/domain/schema.ts'
 import { jobPostingCaptureSchema } from '../dashboard/src/domain/jobPosting.ts'
 import { createJobPostingFetcher, type JobPostingFetcher } from './job-posting-fetcher.ts'
 import { JobPostingError } from './job-posting-text.ts'
+import { knowledgeFieldsSchema, saveKnowledgeSchema } from '../dashboard/src/domain/knowledge.ts'
+import { addAnswerSchema, preparationContextSchema, revisionSchema, saveAnswerSchema } from '../dashboard/src/domain/applicationPreparation.ts'
 
 const hash = z.string().regex(/^(?:[1-9]\d*|[a-f0-9]{64})$/)
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().startsWith(v))
@@ -39,6 +41,7 @@ const jobDescriptionInput = z.strictObject({ content, revision: hash.nullable() 
 const messageFields = { title: messageSchema.shape.title, content: z.string().trim().min(1).max(100_000) }
 const createMessageInput = z.strictObject(messageFields)
 const saveMessageInput = z.strictObject({ ...messageFields, revision: hash })
+const selectCvInput = z.strictObject({ ...revisionSchema.shape, cvVersionId: z.uuid() })
 const attachInput = z.strictObject({ name: z.string(), revision: hash, sourceRevision: hash, cvRevision: z.union([hash,z.uuid()]).nullable(), allowHistoricalEdit: z.boolean().optional() })
 
 async function body(req: IncomingMessage) {
@@ -63,8 +66,8 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
       if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) throw new StoreError(403, 'Origin not allowed')
       if (req.headers['sec-fetch-site'] === 'cross-site') throw new StoreError(403, 'Origin not allowed')
       const segments = new URL(req.url!, 'http://localhost').pathname.split('/').filter(Boolean).map(decodeURIComponent)
-      const [, collection, id, action] = segments
-      if (segments[0] !== 'api' || segments.length > 4) throw new StoreError(404, 'Endpoint not found')
+      const [, collection, id, action, target] = segments
+      if (segments[0] !== 'api' || segments.length > (collection === 'preparations' ? 5 : 4)) throw new StoreError(404, 'Endpoint not found')
       if (req.method !== 'GET' && !req.headers['content-type']?.startsWith('application/json')) throw new StoreError(415, 'Use application/json')
       if (collection === 'profile' && !id) {
         if (req.method === 'GET') return send(200, await store.personalProfile())
@@ -73,6 +76,25 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
           if (!parsed.success) return send(400, { error: 'Invalid profile fields', fields: Object.fromEntries(parsed.error.issues.map(i => [i.path.join('.'), i.message])) })
           return send(200, await store.savePersonalProfile(parsed.data))
         }
+      }
+      if (collection === 'knowledge' && !action) {
+        if (req.method === 'GET' && !id) return send(200, await store.knowledge())
+        if (req.method === 'POST' && !id) return send(201, await store.saveKnowledge(null, knowledgeFieldsSchema.parse(await body(req))))
+        if (req.method === 'PUT' && id) return send(200, await store.saveKnowledge(z.uuid().parse(id), saveKnowledgeSchema.parse(await body(req))))
+        if (req.method === 'DELETE' && id) return send(200, await store.deleteKnowledge(z.uuid().parse(id), revisionSchema.parse(await body(req))))
+      }
+      if (collection === 'applications' && id && action === 'preparations') {
+        if (req.method === 'GET') return send(200, await store.preparation(id))
+        if (req.method === 'POST') return send(200, await store.startPreparation(id))
+      }
+      if (collection === 'preparations' && id) {
+        const preparationId = z.uuid().parse(id)
+        if (!action && req.method === 'PUT') return send(200, await store.updatePreparation(preparationId, preparationContextSchema.parse(await body(req))))
+        if (action === 'select-cv' && !target && req.method === 'POST') return send(200, await store.selectPreparationCv(preparationId, selectCvInput.parse(await body(req))))
+        if (action === 'resolve' && !target && req.method === 'POST') return send(200, await store.resolvePreparation(preparationId, revisionSchema.parse(await body(req))))
+        if (action === 'answers' && !target && req.method === 'POST') return send(201, await store.addPreparationAnswer(preparationId, addAnswerSchema.parse(await body(req))))
+        if (action === 'answers' && target && req.method === 'PUT') return send(200, await store.savePreparationAnswer(preparationId, z.uuid().parse(target), saveAnswerSchema.parse(await body(req))))
+        if (action === 'answers' && target && req.method === 'DELETE') return send(200, await store.deletePreparationAnswer(preparationId, z.uuid().parse(target), revisionSchema.parse(await body(req))))
       }
       if (collection === 'config' && req.method === 'GET' && !id) return send(200, { timezone:store.timezone() })
       if (collection === 'trash' && req.method === 'GET' && !id) return send(200, await store.trash())

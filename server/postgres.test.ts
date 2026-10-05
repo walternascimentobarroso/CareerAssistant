@@ -14,6 +14,7 @@ import { migrate } from './db/migrate'
 import { PostgresStore } from './postgres-store'
 import { api } from './api'
 import { parseJobDescription, serializeJobDescription } from '../dashboard/src/domain/jobDescription'
+import { preparationSummary, type PreparationAnswer } from '../dashboard/src/domain/applicationPreparation'
 
 const url=process.env.TEST_DATABASE_URL
 const schema=`career_test_${randomUUID().replaceAll('-','')}`
@@ -48,7 +49,7 @@ async function request(method:string,path:string,body?:unknown) {
 }
 test('migrations are transactional and repeatable',integration,async () => {
   assert.deepEqual(await migrate(pool),[])
-  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'5')
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'6')
 })
 test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
   let a=await create()
@@ -286,4 +287,109 @@ test('personal profile concurrency, decimals, soft delete, uniqueness, atomicity
   await pool.query('UPDATE personal_profiles SET deleted_at=now() WHERE id=$1', [id])
   await assert.rejects(pool.query("INSERT INTO personal_profile_languages(profile_id,code,level) VALUES ($1,'en','C1')", [id]), { code: '23514' })
   assert.deepEqual(await store.personalProfile(), { profile: null })
+})
+
+test('knowledge base and application preparation keep snapshots, scoped memory, revisions and lifecycle', integration, async () => {
+  const knowledge = { concept: 'relocation.willing', question: 'Are you willing to relocate?', language: 'en', category: 'relocation' as const, answer: { type: 'boolean' as const, value: true }, context: [], aliases: ['Would you relocate?'], confirmed: true }
+  let entry = await store.saveKnowledge(null, knowledge)
+  assert.deepEqual([entry.aliases, entry.origin, entry.confirmed], [['Would you relocate?'], 'USER', true])
+  await assert.rejects(store.saveKnowledge(null, knowledge), { status: 409 })
+  const edits = await Promise.allSettled([store.saveKnowledge(entry.id, { ...knowledge, revision: entry.revision }), store.saveKnowledge(entry.id, { ...knowledge, question: 'Relocate?', revision: entry.revision })])
+  assert.equal(edits.filter(r => r.status === 'fulfilled').length, 1)
+  assert.equal((edits.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.status, 409)
+  entry = await store.saveKnowledge(entry.id, { ...knowledge, revision: (await store.knowledge()).entries.find(e => e.id === entry.id)!.revision })
+  let profile = (await store.savePersonalProfile({ ...emptyPersonalProfile, name: 'Ada', workAuthorizations: [{ country: 'DE', authorization: 'authorized', sponsorship: 'no', notes: null }], revision: null })).profile!
+
+  const application = await create('Preparation Co')
+  assert.deepEqual(await store.preparation(application.slug), { preparation: null })
+  const starts = await Promise.all([store.startPreparation(application.slug), store.startPreparation(application.slug)])
+  assert.equal(starts[0].preparation.id, starts[1].preparation.id)
+  let p = starts[0].preparation
+  const id = p.id
+  const cv = await store.saveCv('preparation-cv', '# CV v1', null)
+  p = (await store.selectPreparationCv(id, { revision: p.revision, cvVersionId: cv.versionId })).preparation
+  await store.saveCv('preparation-cv', '# CV v2', cv.revision)
+  await assert.rejects(pool.query('UPDATE cv_versions SET deleted_at=now() WHERE id=$1', [cv.versionId]), { code: '23514' })
+  await assert.rejects(store.selectPreparationCv(id, { revision: p.revision, cvVersionId: randomUUID() }), { status: 404 })
+  p = (await store.updatePreparation(id, { revision: p.revision, country: 'DE', language: 'en', cvRequired: true })).preparation
+  for (const question of [{ question: 'would you relocate', concept: null }, { question: 'Need sponsorship?', concept: 'work_authorization.requires_sponsorship' }, { question: 'Why this company?', concept: null, type: 'text' as const }]) {
+    p = (await store.addPreparationAnswer(id, { type: 'boolean', options: [], required: true, ...question, revision: p.revision })).preparation
+  }
+  await assert.rejects(store.resolvePreparation(id, { revision: '1' }), { status: 409 })
+  p = (await store.resolvePreparation(id, { revision: p.revision })).preparation
+  let [relocation, sponsorship, motivation] = p.answers
+  assert.deepEqual([relocation.answer, relocation.source, relocation.approval, relocation.evidence?.sources[0].id], [{ type: 'boolean', value: true }, 'KNOWLEDGE_BASE', 'accepted', entry.id])
+  assert.deepEqual([sponsorship.answer, sponsorship.source, sponsorship.evidence?.sources[0].revision], [{ type: 'boolean', value: false }, 'PROFILE', profile.revision])
+  assert.deepEqual([motivation.answer, motivation.source, motivation.approval], [null, 'UNKNOWN', 'pending'])
+  assert.deepEqual([p.cv?.version, preparationSummary(p).completeness, preparationSummary(p).status], [1, 75, 'NOT_READY'])
+
+  // Editing the sources afterwards changes neither the snapshot nor a later resolution of reviewed answers.
+  await store.saveKnowledge(entry.id, { ...knowledge, answer: { type: 'boolean', value: false }, revision: entry.revision })
+  const { id: _profileId, ...current } = profile
+  profile = (await store.savePersonalProfile({ ...current, workAuthorizations: [{ country: 'DE', authorization: 'authorized', sponsorship: 'yes', notes: null }] })).profile!
+  p = (await store.resolvePreparation(id, { revision: p.revision })).preparation
+  assert.deepEqual(p.answers.slice(0, 2).map(a => a.answer), [{ type: 'boolean', value: true }, { type: 'boolean', value: false }])
+
+  const save = (answer: PreparationAnswer, changes: object) => store.savePreparationAnswer(id, answer.id, { question: answer.question, concept: answer.concept, type: answer.type, options: answer.options,
+    required: answer.required, answer: answer.answer, approval: answer.approval, revision: p.revision, ...changes })
+  motivation = p.answers[2]
+  await assert.rejects(save(motivation, { approval: 'accepted' }), { status: 400 })
+  await assert.rejects(save(motivation, { answer: { type: 'boolean', value: true } }), { status: 400 })
+  const typed = { type: 'text' as const, value: 'I admire the product.' }
+  const remember = { concept: 'motivation.company', category: 'motivation' as const, scopes: ['APPLICATION' as const] }
+  await assert.rejects(save(motivation, { answer: typed, approval: 'pending', remember }), { status: 400 })
+  await assert.rejects(save(motivation, { answer: typed, approval: 'accepted', remember: { ...remember, scopes: ['CONTRACT_TYPE' as const] } }), { status: 400 })
+  const writes = await Promise.allSettled([save(motivation, { answer: typed, approval: 'accepted' }), save(motivation, { answer: { type: 'text', value: 'Other' }, approval: 'accepted' })])
+  assert.equal(writes.filter(r => r.status === 'fulfilled').length, 1)
+  assert.equal((writes.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.status, 409)
+  p = (await store.preparation(application.slug)).preparation!
+  // Approving for this application alone memorizes nothing.
+  assert.equal((await store.knowledge()).entries.some(e => e.concept === 'motivation.company'), false)
+  p = (await save(p.answers[2], { answer: typed, approval: 'accepted', remember })).preparation
+  assert.deepEqual([p.answers[2].source, p.answers[2].approval, preparationSummary(p).completeness, preparationSummary(p).status], ['USER', 'accepted', 100, 'NEEDS_REVIEW'])
+  const remembered = (await store.knowledge()).entries.find(e => e.concept === 'motivation.company')!
+  assert.deepEqual(remembered.context, [{ type: 'APPLICATION', value: application.id }])
+  // A duplicate memory fails the whole save, including the answer edit.
+  await assert.rejects(save(p.answers[2], { answer: { type: 'text', value: 'Changed' }, approval: 'accepted', remember }), { status: 409 })
+  assert.deepEqual((await store.preparation(application.slug)).preparation, p)
+
+  const other = await create('Other Preparation Co')
+  let q = (await store.startPreparation(other.slug)).preparation
+  q = (await store.addPreparationAnswer(q.id, { question: 'Why this company?', concept: null, type: 'text', options: [], required: true, revision: q.revision })).preparation
+  q = (await store.resolvePreparation(q.id, { revision: q.revision })).preparation
+  assert.equal(q.answers[0].answer, null)
+
+  // A new country sends reused answers back to review; the typed one remains the user's decision.
+  p = (await store.updatePreparation(id, { revision: p.revision, country: 'US', language: 'en', cvRequired: true })).preparation
+  assert.deepEqual(p.answers.map(a => a.approval), ['pending', 'pending', 'accepted'])
+  p = (await store.resolvePreparation(id, { revision: p.revision })).preparation
+  assert.deepEqual([p.answers[0].answer, p.answers[1].answer, p.answers[1].source], [{ type: 'boolean', value: false }, null, 'UNKNOWN'])
+
+  const answers = `/api/preparations/${id}/answers`
+  assert.equal((await request('GET', '/api/knowledge')).value.entries.length, 2)
+  assert.equal((await request('GET', `/api/applications/${application.slug}/preparations`)).value.preparation.revision, p.revision)
+  assert.equal((await request('POST', answers, { question: 'Notice?', concept: null, type: 'single_select', options: [], required: true, revision: p.revision })).status, 422)
+  assert.equal((await request('POST', answers, { question: 'Notice?', concept: null, type: 'text', options: [], required: false, revision: '1' })).status, 409)
+  const added = await request('POST', answers, { question: 'Notice?', concept: null, type: 'text', options: [], required: false, revision: p.revision })
+  assert.equal(added.status, 201)
+  const removed = await request('DELETE', `${answers}/${added.value.preparation.answers[3].id}`, { revision: added.value.preparation.revision })
+  assert.deepEqual([removed.status, removed.value.preparation.answers.length], [200, 3])
+  assert.equal((await request('POST', `/api/preparations/${id}/resolve`, { revision: p.revision })).status, 409)
+  assert.equal((await request('PUT', `/api/knowledge/${remembered.id}`, { ...remembered, revision: remembered.revision })).status, 422)
+  assert.equal((await request('DELETE', `/api/knowledge/${remembered.id}`, { revision: remembered.revision })).status, 200)
+  assert.equal((await request('DELETE', `/api/knowledge/${remembered.id}`, { revision: remembered.revision })).status, 409)
+
+  // Removal hides the preparation through its application; restore brings back the same snapshot; purge removes it.
+  p = removed.value.preparation
+  let removedApplication = await store.deleteApplication(application.slug, { revision: (await store.application(application.slug)).revision })
+  assert.deepEqual(await store.preparation(application.slug), { preparation: null })
+  await assert.rejects(store.resolvePreparation(id, { revision: p.revision }), { status: 404 })
+  let trashed = (await store.trash()).find(row => row.id === removedApplication.id)
+  await store.restoreApplication(application.slug, { revision: String(trashed.revision) })
+  assert.deepEqual((await store.preparation(application.slug)).preparation, p)
+  removedApplication = await store.deleteApplication(application.slug, { revision: (await store.application(application.slug)).revision })
+  trashed = (await store.trash()).find(row => row.id === removedApplication.id)
+  await store.permanentlyDeleteApplication(application.slug, { revision: String(trashed.revision) })
+  assert.equal((await pool.query('SELECT count(*) FROM application_preparations WHERE id=$1', [id])).rows[0].count, '0')
+  assert.equal((await pool.query('SELECT count(*) FROM application_answers WHERE preparation_id=$1', [id])).rows[0].count, '0')
 })

@@ -11,6 +11,9 @@ import { CLOSED_STATUSES, type Status } from '../dashboard/src/domain/constants.
 import { emptyJobDescription, parseJobDescription, serializeJobDescription, type JobDescription } from '../dashboard/src/domain/jobDescription.ts'
 import type { JobPostingCapture, JobPostingProvenance } from '../dashboard/src/domain/jobPosting.ts'
 import type { LiveApplication } from '../dashboard/src/data/loadApplications.tsx'
+import { answerValueSchema, contextKey, normalizeText, type KnowledgeEntry, type KnowledgeFields, type Restriction } from '../dashboard/src/domain/knowledge.ts'
+import { answerFits, type Preparation, type PreparationAnswer, type Requirement, type ResolutionContext, type SaveAnswer } from '../dashboard/src/domain/applicationPreparation.ts'
+import { contextValues, resolveAnswer } from './application-answer-resolver.ts'
 
 type Queryable = Pool | PoolClient
 export type CreateApplicationInput = { fields: ApplicationFields; applied: boolean; date: string; jobPosting?: string; jobSections?: Partial<Pick<JobDescription, 'keyRequirements' | 'niceToHave' | 'technologies'>>; jobPostingCapture?: JobPostingCapture }
@@ -134,7 +137,7 @@ export class PostgresStore {
       return this.application(slug,client)
     })
     this.id(slug)
-    const { rows } = await query.query(`SELECT a.*, j.title,j.contract_type,j.location,j.job_url,j.description_md,j.description_input_kind,j.description_captured_at,j.description_resolved_url,j.description_capture_method,j.description_edited_after_capture,j.row_version AS job_revision,c.name AS company
+    const { rows } = await query.query(`SELECT a.*, j.company_id,j.title,j.contract_type,j.location,j.job_url,j.description_md,j.description_input_kind,j.description_captured_at,j.description_resolved_url,j.description_capture_method,j.description_edited_after_capture,j.row_version AS job_revision,c.name AS company
       FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
       WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`, [slug])
     if (!rows.length) throw new StoreError(404, 'Application not found')
@@ -171,7 +174,7 @@ export class PostgresStore {
       const participants=(await query.query('SELECT display_name AS name,role FROM interview_participants WHERE interview_id=$1 AND deleted_at IS NULL ORDER BY created_at,id',[i.id])).rows
       return { participants, id:i.id, slug, title:`${i.sequence_number} - ${i.kind}`, documents:paths, status:i.status, date:i.scheduled_on ?? i.starts_at?.toISOString(), revision:String(i.row_version) }
     }))
-    return { id:a.id, jobId:a.job_id, slug:a.slug, data, notes:a.notes_md, documents, interviews:interviewViews, revision:String(a.row_version),
+    return { id:a.id, jobId:a.job_id, companyId:a.company_id, slug:a.slug, data, notes:a.notes_md, documents, interviews:interviewViews, revision:String(a.row_version),
       jobRevision:String(a.job_revision), jobPostingProvenance:provenanceFromJob(a) ?? null, tasks:tasks.rows.map(t => ({ id:t.id, type:t.type, description:t.description, date:t.due_on, status:t.status, isNext:t.is_next })),
       cvHistory:cvs.rows.map(c => ({ id:c.id, versionId:c.cv_version_id, name:c.name, version:c.version_number, state:c.state, sentOn:c.sent_on, sentAt:c.sent_at?.toISOString() ?? null, content:c.content_md })),
       eventIds:events.rows.map(e => e.id) }
@@ -301,7 +304,8 @@ export class PostgresStore {
       await client.query('DELETE FROM attachments WHERE application_id=$1 OR interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
       await client.query('DELETE FROM interview_analyses WHERE interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
       await client.query('DELETE FROM interview_participants WHERE interview_id IN (SELECT id FROM interviews WHERE application_id=$1)',[a.id])
-      for (const table of ['interviews','tasks','application_cvs','application_contacts','application_tags']) {
+      await client.query('DELETE FROM application_answers WHERE preparation_id IN (SELECT id FROM application_preparations WHERE application_id=$1)',[a.id])
+      for (const table of ['application_preparations','interviews','tasks','application_cvs','application_contacts','application_tags']) {
         await client.query(`DELETE FROM ${table} WHERE application_id=$1`,[a.id])
       }
       await client.query('DELETE FROM import_sources WHERE entity_type=$1 AND entity_id=$2',['application',a.id])
@@ -465,4 +469,160 @@ export class PostgresStore {
       return this.application(a.id,client)
     })
   }
+  async knowledge(query: Queryable = this.pool, id: string | null = null): Promise<{ entries: KnowledgeEntry[] }> {
+    const { rows }=await query.query(`SELECT e.*,COALESCE((SELECT array_agg(a.question ORDER BY a.question) FROM knowledge_question_aliases a WHERE a.entry_id=e.id AND a.deleted_at IS NULL),'{}') AS aliases
+      FROM knowledge_entries e WHERE e.deleted_at IS NULL AND ($1::uuid IS NULL OR e.id=$1) ORDER BY e.concept,e.created_at,e.id`,[id])
+    return { entries:rows.map(row => ({ id:row.id,revision:String(row.row_version),concept:row.concept,question:row.question,language:row.language,category:row.category,
+      answer:answerValueSchema.parse(row.answer),context:row.context,aliases:row.aliases,confirmed:row.confirmed_at!==null,origin:row.origin,confirmedAt:row.confirmed_at?.toISOString() ?? null })) }
+  }
+  private async writeKnowledge(client: PoolClient, id: string | null, fields: KnowledgeFields, expected?: string) {
+    const values=[fields.concept,fields.question,fields.language,fields.category,JSON.stringify(fields.answer),JSON.stringify(fields.context),contextKey(fields.context),fields.confirmed]
+    const saved=await (id===null
+      ? client.query('INSERT INTO knowledge_entries(concept,question,language,category,answer,context,context_key,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $8 THEN now() END) RETURNING id',values)
+      : client.query('UPDATE knowledge_entries SET concept=$1,question=$2,language=$3,category=$4,answer=$5,context=$6,context_key=$7,confirmed_at=CASE WHEN $8 THEN now() END WHERE id=$9 AND row_version=$10 AND deleted_at IS NULL RETURNING id',[...values,id,expected])
+    ).catch(error => { throw error.code==='23505' ? new StoreError(409,'An active entry already exists for this concept, language and context.') : error })
+    if (!saved.rows.length) throw new StoreError(409,'Entry missing or changed. Reload before saving.')
+    const entryId=saved.rows[0].id
+    await client.query('UPDATE knowledge_question_aliases SET deleted_at=clock_timestamp() WHERE entry_id=$1 AND deleted_at IS NULL AND NOT (normalized_question=ANY($2::text[]))',[entryId,fields.aliases.map(normalizeText)])
+    for (const alias of fields.aliases) await client.query(`INSERT INTO knowledge_question_aliases(entry_id,question,normalized_question) VALUES ($1,$2,$3)
+      ON CONFLICT (entry_id,normalized_question) WHERE deleted_at IS NULL DO UPDATE SET question=EXCLUDED.question`,[entryId,alias,normalizeText(alias)])
+    return (await this.knowledge(client,entryId)).entries[0]
+  }
+  async saveKnowledge(id: string | null, input: KnowledgeFields & { revision?: string }) {
+    const { revision:expected,...fields }=input
+    return transaction(this.pool,client => this.writeKnowledge(client,id,fields,expected))
+  }
+  async deleteKnowledge(id: string, input: { revision: string }) {
+    const result=await this.pool.query('UPDATE knowledge_entries SET deleted_at=now() WHERE id=$1 AND row_version=$2 AND deleted_at IS NULL',[id,input.revision])
+    if (!result.rowCount) throw new StoreError(409,'Entry missing or changed. Reload before deleting.')
+    return { id }
+  }
+  private async preparationView(client: PoolClient, id: string): Promise<{ preparation: Preparation }> {
+    const p=(await client.query(`SELECT p.*,v.version_number,c.slug AS cv_name FROM application_preparations p
+      LEFT JOIN cv_versions v ON v.id=p.cv_version_id LEFT JOIN cvs c ON c.id=v.cv_id WHERE p.id=$1`,[id])).rows[0]
+    const answers=await client.query('SELECT * FROM application_answers WHERE preparation_id=$1 AND deleted_at IS NULL ORDER BY created_at,id',[id])
+    return { preparation:{ id:p.id,applicationId:p.application_id,revision:String(p.row_version),country:p.country,language:p.language,cvRequired:p.cv_required,
+      cv:p.cv_version_id ? { versionId:p.cv_version_id,name:p.cv_name,version:p.version_number } : null,formInspected:false,answers:answers.rows.map(answerView) } }
+  }
+  async preparation(slug: string): Promise<{ preparation: Preparation | null }> {
+    this.id(slug)
+    return transaction(this.pool,async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      const { rows }=await client.query(`SELECT p.id FROM application_preparations p JOIN applications a ON a.id=p.application_id JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
+        WHERE (a.slug=$1 OR a.id::text=$1) AND p.deleted_at IS NULL AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`,[slug])
+      return rows.length ? this.preparationView(client,rows[0].id) : { preparation:null }
+    })
+  }
+  async startPreparation(slug: string) {
+    return transaction(this.pool,async client => {
+      // The application lock makes a repeated or concurrent start return the same preparation.
+      const a=await this.lockedApplication(client,slug)
+      const existing=(await client.query('SELECT id FROM application_preparations WHERE application_id=$1 AND deleted_at IS NULL',[a.id])).rows[0]
+        ?? (await client.query('INSERT INTO application_preparations(application_id) VALUES ($1) RETURNING id',[a.id])).rows[0]
+      return this.preparationView(client,existing.id)
+    })
+  }
+  private async lockedPreparation(client: PoolClient, id: string, expected: string) {
+    const { rows }=await client.query(`SELECT p.*,a.job_id,j.company_id,j.location,j.contract_type FROM application_preparations p
+      JOIN applications a ON a.id=p.application_id JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
+      WHERE p.id=$1 AND p.deleted_at IS NULL AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL FOR UPDATE OF p`,[id])
+    if (!rows.length) throw new StoreError(404,'Preparation not found')
+    if (String(rows[0].row_version)!==expected) throw new StoreError(409,'Preparation changed. Reload before saving.')
+    return rows[0]
+  }
+  /** Every answer change is a new preparation revision. */
+  private async revisedPreparation(client: PoolClient, id: string) {
+    await client.query('UPDATE application_preparations SET updated_at=updated_at WHERE id=$1',[id])
+    return this.preparationView(client,id)
+  }
+  async updatePreparation(id: string, input: { revision: string; country: string | null; language: string; cvRequired: boolean }) {
+    return transaction(this.pool,async client => {
+      const p=await this.lockedPreparation(client,id,input.revision)
+      await client.query('UPDATE application_preparations SET country=$2,language=$3,cv_required=$4 WHERE id=$1',[id,input.country,input.language,input.cvRequired])
+      if (p.country!==input.country || p.language!==input.language) {
+        await client.query(`UPDATE application_answers SET approval='pending',approved_at=NULL,review_reason='The application context changed. Review this answer.'
+          WHERE preparation_id=$1 AND deleted_at IS NULL AND source IN ('PROFILE','KNOWLEDGE_BASE')`,[id])
+      }
+      return this.preparationView(client,id)
+    })
+  }
+  async selectPreparationCv(id: string, input: { revision: string; cvVersionId: string }) {
+    return transaction(this.pool,async client => {
+      await this.lockedPreparation(client,id,input.revision)
+      const version=await client.query('SELECT 1 FROM cv_versions v JOIN cvs c ON c.id=v.cv_id WHERE v.id=$1 AND v.deleted_at IS NULL AND c.deleted_at IS NULL',[input.cvVersionId])
+      if (!version.rowCount) throw new StoreError(404,'CV version not found')
+      await client.query('UPDATE application_preparations SET cv_version_id=$2 WHERE id=$1',[id,input.cvVersionId])
+      return this.preparationView(client,id)
+    })
+  }
+  async addPreparationAnswer(id: string, input: Requirement & { revision: string }) {
+    return transaction(this.pool,async client => {
+      await this.lockedPreparation(client,id,input.revision)
+      await client.query('INSERT INTO application_answers(preparation_id,question,concept,answer_type,options,required) VALUES ($1,$2,$3,$4,$5,$6)',[id,input.question,input.concept,input.type,JSON.stringify(input.options),input.required])
+      return this.revisedPreparation(client,id)
+    })
+  }
+  async savePreparationAnswer(id: string, answerId: string, input: SaveAnswer) {
+    return transaction(this.pool,async client => {
+      const p=await this.lockedPreparation(client,id,input.revision)
+      const current=(await client.query('SELECT * FROM application_answers WHERE id=$1 AND preparation_id=$2 AND deleted_at IS NULL',[answerId,id])).rows[0]
+      if (!current) throw new StoreError(404,'Question not found')
+      if (input.answer && !answerFits(input,input.answer)) throw new StoreError(400,'The answer does not fit this field type or its options')
+      const accepted=input.approval==='accepted'
+      if (accepted && !input.answer) throw new StoreError(400,'Only an answer can be accepted')
+      if (input.remember && !accepted) throw new StoreError(400,'Accept the answer before remembering it')
+      const edited=!isDeepStrictEqual(input.answer,answerView(current).answer)
+      // A typed value replaces the proposal and its provenance; reviewing a proposal keeps where it came from.
+      const provenance=edited ? [input.answer ? 'USER':'UNKNOWN',input.answer ? 'VERIFIED':'UNKNOWN',null,null]
+        : [current.source,current.confidence,current.evidence && JSON.stringify(current.evidence),accepted ? null : current.review_reason]
+      const approvedAt=accepted ? (!edited && current.approved_at) || new Date() : null
+      await client.query(`UPDATE application_answers SET question=$2,concept=$3,answer_type=$4,options=$5,required=$6,answer=$7,source=$8,confidence=$9,evidence=$10,review_reason=$11,approval=$12,approved_at=$13 WHERE id=$1`,
+        [answerId,input.question,input.concept,input.type,JSON.stringify(input.options),input.required,input.answer && JSON.stringify(input.answer),...provenance,input.approval,approvedAt])
+      if (input.remember) {
+        await this.writeKnowledge(client,null,{ concept:input.remember.concept,question:input.question,language:p.language,category:input.remember.category,answer:input.answer!,
+          context:scopedContext(input.remember.scopes,resolutionContext(p)),aliases:[],confirmed:true })
+      }
+      return this.revisedPreparation(client,id)
+    })
+  }
+  async deletePreparationAnswer(id: string, answerId: string, input: { revision: string }) {
+    return transaction(this.pool,async client => {
+      await this.lockedPreparation(client,id,input.revision)
+      const removed=await client.query('UPDATE application_answers SET deleted_at=now() WHERE id=$1 AND preparation_id=$2 AND deleted_at IS NULL',[answerId,id])
+      if (!removed.rowCount) throw new StoreError(404,'Question not found')
+      return this.revisedPreparation(client,id)
+    })
+  }
+  async resolvePreparation(id: string, input: { revision: string }) {
+    return transaction(this.pool,async client => {
+      const p=await this.lockedPreparation(client,id,input.revision)
+      const { profile }=await this.personalProfile(client)
+      const { entries }=await this.knowledge(client)
+      // Typed and reviewed answers are the user's decision; only open proposals are recomputed.
+      const open=await client.query("SELECT * FROM application_answers WHERE preparation_id=$1 AND deleted_at IS NULL AND approval='pending' AND source<>'USER'",[id])
+      for (const row of open.rows) {
+        const resolved=resolveAnswer(answerView(row),resolutionContext(p),profile,entries)
+        await client.query("UPDATE application_answers SET answer=$2,source=$3,confidence=$4,evidence=$5,review_reason=$6,approval=$7,approved_at=CASE WHEN $7='accepted' THEN now() END WHERE id=$1",
+          [row.id,resolved.answer && JSON.stringify(resolved.answer),resolved.source,resolved.confidence,resolved.evidence && JSON.stringify(resolved.evidence),resolved.reviewReason,resolved.approval])
+      }
+      return this.revisedPreparation(client,id)
+    })
+  }
+}
+type Row = Record<string, any>
+function answerView(row: Row): PreparationAnswer {
+  return { id:row.id,question:row.question,concept:row.concept,type:row.answer_type,options:row.options,required:row.required,
+    answer:row.answer===null ? null : answerValueSchema.parse(row.answer),source:row.source,confidence:row.confidence,evidence:row.evidence,reviewReason:row.review_reason,
+    approval:row.approval,approvedAt:row.approved_at?.toISOString() ?? null }
+}
+function resolutionContext(preparation: Row): ResolutionContext {
+  return { country:preparation.country,language:preparation.language,location:preparation.location,contractType:preparation.contract_type,
+    companyId:preparation.company_id,jobId:preparation.job_id,applicationId:preparation.application_id }
+}
+function scopedContext(scopes: Restriction['type'][], context: ResolutionContext) {
+  const values=contextValues(context)
+  return [...new Set(scopes)].map(type => {
+    if (!values[type]) throw new StoreError(400,`This application has no ${type.toLowerCase().replace('_',' ')} to limit the answer to`)
+    return { type,value:values[type] } as Restriction
+  })
 }

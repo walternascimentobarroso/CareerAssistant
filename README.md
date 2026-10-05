@@ -152,3 +152,32 @@ The **Personal profile** page (`/profile`, under the dashboard hash router) stor
 On a new application, **Use profile salary defaults** applies a complete personal salary expectation. Existing salary data requires confirmation before replacement, including advertised ranges. Applied values are independent snapshots with `personal_expectation` as their basis. Residence, eligibility, language and job preferences are not copied into vacancy facts; editing a profile does not change previous applications or CV versions. Profile data is not sent automatically to AI or imported from CVs.
 
 Profile domain tests run with `npm test`. PostgreSQL tests (`npm run test:postgres`) require `TEST_DATABASE_URL` and use an isolated schema to verify concurrency, decimal precision, uniqueness, atomic rollback and soft deletion.
+
+### Knowledge Base and application preparation
+
+Apply `006_application_agent.sql` with `npm run db:migrate` before using these pages.
+
+**Knowledge Base** (`/knowledge`) stores reusable answers. Each entry has a canonical concept (e.g. `experience.symfony`), a reference question, equivalent wordings, a language, a typed answer (text, yes/no, number, single or multiple selection, money) and optional restrictions: country, location, contract type, company, job or application. An entry without restrictions is global. Only one active entry may exist per concept, language and set of restrictions.
+
+**Prepare application** (`/applications/:slug/preparation`, linked from the application page) keeps one preparation per application: the job country and form language, a fixed CV version and the questions you add by hand. **Resolve answers** fills open questions deterministically, without AI:
+
+1. The question's concept is the one you typed, or the single concept whose reference question or equivalent wording equals the question (ignoring case, accents and punctuation).
+2. Candidates are the personal profile, for the concepts offered in the concept field, and every confirmed entry in the form language whose restrictions all match the application.
+3. One agreed value that fits the field type and options is accepted as `VERIFIED`. Disagreeing or unfit values, several matching concepts and missing data are left for you, with the candidate sources shown.
+
+Work authorization and sponsorship come only from the profile row of the job country; an unknown state or unlisted country stays unanswered. Answers are snapshots with the id and revision of their sources: later edits to the profile, knowledge base or CV do not change a preparation, and resolving again only touches questions still pending that you did not type. Changing the country or language sends reused answers back to review. **Remember this answer** is off by default and needs a concept and a scope, which starts limited to the application.
+
+Completeness is accepted required items (including the CV when required) over known required items. It is not shown as a percentage with no required items, and a complete preparation stays `Needs review` because the form was not inspected: there is no browser automation, form detection or submission yet.
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET, POST | `/api/knowledge` | List or create reusable answers |
+| PUT, DELETE | `/api/knowledge/:id` | Save or remove an entry (`revision`) |
+| GET, POST | `/api/applications/:id/preparations` | Read, or create-or-return, the preparation |
+| PUT | `/api/preparations/:id` | Country, language and whether a CV is required |
+| POST | `/api/preparations/:id/select-cv` | Fix a CV version |
+| POST | `/api/preparations/:id/answers` | Add a question |
+| PUT, DELETE | `/api/preparations/:id/answers/:answerId` | Edit, review, remember or remove a question |
+| POST | `/api/preparations/:id/resolve` | Resolve open questions |
+
+Every preparation mutation takes the preparation `revision` and returns the new one; a stale revision returns HTTP 409 and changes nothing. Money answers are exact decimal strings inside the JSON answer. Removing an application hides its preparation; permanent deletion removes it. Knowledge entries are not part of the Markdown export.

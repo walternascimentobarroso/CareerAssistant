@@ -47,6 +47,7 @@ export function ApplicationPage() {
             </a>
           )}
           <Link to={`/applications/${application.slug}/edit`}>Edit application</Link>
+          <Link to={`/applications/${application.slug}/preparation`}>Prepare application</Link>
         </div>
       </header>
 

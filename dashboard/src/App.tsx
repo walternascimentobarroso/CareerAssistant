@@ -1,4 +1,6 @@
 import { PersonalProfilePage } from './pages/PersonalProfilePage'
+import { KnowledgePage } from './pages/KnowledgePage'
+import { PreparationPage } from './pages/PreparationPage'
 import { ApplicationsProvider } from './data/loadApplications'
 import { TrashPage } from './pages/TrashPage'
 import { CvPage } from './pages/CvPage'
@@ -26,9 +28,11 @@ export function App() {
           <Route path="messages" element={<MessagesPage />} />
           <Route path="new" element={<NewApplicationPage />} />
           <Route path="profile" element={<PersonalProfilePage />} />
+          <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="applications/:slug" element={<ApplicationPage />} />
           <Route path="applications/:slug/edit" element={<EditApplicationPage />} />
+          <Route path="applications/:slug/preparation" element={<PreparationPage />} />
           <Route path="applications/:slug/job-description" element={<JobDescriptionPage />} />
           <Route path="applications/:slug/doc/*" element={<DocumentPage />} />
         </Route>
