@@ -1,0 +1,29 @@
+{
+  "status": {
+    "interested": "Interested",
+    "applied": "Applied",
+    "recruiter": "Recruiter",
+    "technical_interview": "Technical Interview",
+    "final_interview": "Final Interview",
+    "offer": "Offer",
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "archived": "Archived"
+  },
+  "priority": {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "contract_type": {
+    "permanent": "Permanent",
+    "b2b": "B2B",
+    "contract": "Contract"
+  },
+  "task_group": {
+    "overdue": "Overdue",
+    "today": "Today",
+    "upcoming": "Upcoming",
+    "no_date": "No date"
+  }
+}

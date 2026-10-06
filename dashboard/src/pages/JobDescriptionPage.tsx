@@ -1,15 +1,16 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type LiveApplication } from '../data/loadApplications'
 import { todayIsoDate } from '../domain/format'
-import { describeProvenance } from '../domain/jobPosting'
-import { JOB_DESCRIPTION_FILE, LIST_SECTION_LABELS, emptyJobDescription, linesToItems, listSections, parseJobDescription, serializeJobDescription, type JobDescription } from '../domain/jobDescription'
+import { JOB_DESCRIPTION_FILE, emptyJobDescription, linesToItems, listSections, parseJobDescription, serializeJobDescription, type JobDescription } from '../domain/jobDescription'
 
 export function JobDescriptionPage() {
+  const { t } = useTranslation('pages')
   const { findApplication } = useApplications()
   const application = findApplication(useParams().slug)
-  if (!application) return <p className="muted">Application not found.</p>
+  if (!application) return <p className="muted">{t('application_not_found', { ns: 'common' })}</p>
   return <JobDescriptionEditor key={application.slug} application={application} />
 }
 
@@ -19,6 +20,7 @@ function initialDescription(application: LiveApplication, saved: string | undefi
 }
 
 function JobDescriptionEditor({ application }: { application: LiveApplication }) {
+  const { t } = useTranslation('pages')
   // The content opened for editing: a file changed elsewhere meanwhile must be rejected, not overwritten.
   const [opened] = useState(application.documents[JOB_DESCRIPTION_FILE])
   const [description, setDescription] = useState(() => initialDescription(application, opened))
@@ -43,19 +45,19 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
   }
   return <article className="detail">
     <Link to={page} className="back">← {application.data.company} — {application.data.role}</Link>
-    <h1>Job description</h1>
+    <h1>{t('job_description.job_description')}</h1>
     <form className="application-form" onSubmit={e => { e.preventDefault(); void save() }}>
       <div className="form-grid">
-        <label>Source (link to the posting)<input type="url" value={description.source} disabled={busy} onChange={e => set({ source: e.target.value })} /></label>
-        <label>Captured on<input type="date" value={description.capturedOn} disabled={busy} onChange={e => set({ capturedOn: e.target.value })} /></label>
+        <label>{t('job_description.source_link_to_the_posting')}<input type="url" value={description.source} disabled={busy} onChange={e => set({ source: e.target.value })} /></label>
+        <label>{t('job_description.captured_on')}<input type="date" value={description.capturedOn} disabled={busy} onChange={e => set({ capturedOn: e.target.value })} /></label>
       </div>
-      {description.provenance && <p className="muted">{describeProvenance(description.provenance)} Changing the text marks it as edited; this record itself is not editable.</p>}
-      <label>Original text — paste the full posting, unedited<textarea rows={16} required value={description.originalText} disabled={busy} onChange={e => set({ originalText: e.target.value })} /></label>
+      {description.provenance && <p className="muted">{description.provenance.inputKind === 'manual' ? t('job_description.provenance_manual', { date: new Date(description.provenance.capturedAt).toLocaleString() }) : t('job_description.provenance_imported', { url: description.provenance.resolvedUrl, date: new Date(description.provenance.capturedAt).toLocaleString(), edited: description.provenance.edited ? t('job_description.provenance_edited') : '' })}{' '}{t('job_description.provenance_hint')}</p>}
+      <label>{t('job_description.original_text_paste_the_full_posting_unedited')}<textarea rows={16} required value={description.originalText} disabled={busy} onChange={e => set({ originalText: e.target.value })} /></label>
       <div className="form-grid">
-        {listSections().map(section => <label key={section}>{LIST_SECTION_LABELS[section]} (one per line)<textarea rows={6} value={lists[section]} disabled={busy} onChange={e => { setLists({ ...lists, [section]: e.target.value }); setDirty(true) }} /></label>)}
+        {listSections().map(section => <label key={section}>{t('job_description.list_label', { label: t(`job_description.sections.${({ keyRequirements: 'key_requirements', niceToHave: 'nice_to_have', technologies: 'technologies', openQuestions: 'open_questions' } as const)[section]}`) })}<textarea rows={6} value={lists[section]} disabled={busy} onChange={e => { setLists({ ...lists, [section]: e.target.value }); setDirty(true) }} /></label>)}
       </div>
-      {(opened !== undefined && parseJobDescription(opened).other !== '') && <label>Other content found in the file (kept as written)<textarea rows={6} value={description.other} disabled={busy} onChange={e => set({ other: e.target.value })} /></label>}
-      <div className="toolbar"><button disabled={busy}>{busy ? 'Saving…' : 'Save job description'}</button>{dirty && <span>Unsaved changes</span>}</div>
+      {(opened !== undefined && parseJobDescription(opened).other !== '') && <label>{t('job_description.other_content_found_in_the_file_kept_as_written')}<textarea rows={6} value={description.other} disabled={busy} onChange={e => set({ other: e.target.value })} /></label>}
+      <div className="toolbar"><button disabled={busy}>{busy ? t('saving', { ns: 'common' }) : t('job_description.save_job_description')}</button>{dirty && <span>{t('unsaved_changes', { ns: 'common' })}</span>}</div>
       <p role="status">{message}</p>
     </form>
   </article>

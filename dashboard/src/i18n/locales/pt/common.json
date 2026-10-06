@@ -1,0 +1,43 @@
+{
+  "brand": "Career Assistant",
+  "board": "Quadro",
+  "tasks": "Tarefas",
+  "cvs": "CVs",
+  "messages": "Mensagens",
+  "new_application": "Nova candidatura",
+  "personal_profile": "Perfil pessoal",
+  "knowledge_base": "Base de conhecimento",
+  "settings": "Definições",
+  "trash": "Lixo",
+  "refresh": "Atualizar",
+  "loading_applications": "A carregar candidaturas…",
+  "back_to_board": "← Quadro",
+  "retry": "Tentar novamente",
+  "saving": "A guardar…",
+  "save_changes": "Guardar alterações",
+  "unsaved_changes": "Alterações por guardar",
+  "fix_fields": "Corrige os campos assinalados.",
+  "application_not_found": "Candidatura não encontrada.",
+  "reload": "Recarregar",
+  "load_current_version": "Carregar versão atual",
+  "not_set": "Não definido",
+  "yes": "Sim",
+  "no": "Não",
+  "cancel": "Cancelar",
+  "remove": "Remover",
+  "edit": "Editar",
+  "save": "Guardar",
+  "answer_input": {
+    "answers_comma_separated": "Respostas (separadas por vírgulas)",
+    "currency_e_g_eur": "Moeda (p. ex. EUR)",
+    "answer": "Resposta",
+    "amount": "Montante",
+    "period": "Período"
+  },
+  "rate_period": {
+    "hour": "Hora",
+    "day": "Dia",
+    "month": "Mês",
+    "year": "Ano"
+  }
+}

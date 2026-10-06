@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { applyProfileSalary, hasSalaryData, type PersonalProfile } from '../domain/personalProfile'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -7,7 +8,7 @@ import { useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type AiSettings, type LiveApplication } from '../data/loadApplications'
 import { changedKeys, fieldsFromForm, formFromApplication, formFromSuggestion, validateFields, type ApplicationFormValues, type FieldErrors } from '../domain/applicationForm'
 import { slugify, todayIsoDate } from '../domain/format'
-import { LIST_SECTION_LABELS, linesToItems } from '../domain/jobDescription'
+import { linesToItems } from '../domain/jobDescription'
 import type { FetchedJobPosting, JobPostingCapture } from '../domain/jobPosting'
 import type { Suggestion } from '../domain/suggestion'
 
@@ -16,12 +17,13 @@ type Sections = Record<(typeof EXTRACTED_SECTIONS)[number], string>
 const NO_SECTIONS: Sections = { keyRequirements: '', niceToHave: '', technologies: '' }
 
 export function NewApplicationPage() {
+  const { t } = useTranslation('pages')
   const [profile, setProfile] = useState<PersonalProfile | null>(null)
   const [profileError, setProfileError] = useState('')
   async function loadProfile() {
     setProfileError('')
     try { setProfile((await request<{ profile: PersonalProfile | null }>('/profile')).profile) }
-    catch { setProfileError('Unable to load profile salary defaults.') }
+    catch { setProfileError(t('new_application.profile_error')) }
   }
   useEffect(() => { void loadProfile() }, [])
   const [step, setStep] = useState<'posting' | 'review'>('posting')
@@ -51,16 +53,16 @@ export function NewApplicationPage() {
   const slug = slugify(`${form.company} ${form.role}`)
   const hasKey = settings?.providers.find(p => p.id === provider)?.configured
   async function importFromUrl() {
-    if (jobPosting.trim() && !window.confirm('Replace the current text with the posting from this link?')) return
+    if (jobPosting.trim() && !window.confirm(t('new_application.replace_posting'))) return
     const current = ++latestImport.current
     setBusy('importing'); setMessage('')
     try {
       const fetched = await request<FetchedJobPosting>('/job-postings/fetch', 'POST', { url: jobUrl.trim() })
       if (current !== latestImport.current) return
       setJobPosting(fetched.text); setImported(fetched); setDirty(true)
-      setMessage('Imported. Review the text before extracting fields.')
+      setMessage(t('new_application.import_success'))
     } catch (e) {
-      if (current === latestImport.current) setMessage(`${(e as Error).message} Paste the job description manually.`)
+      if (current === latestImport.current) setMessage(t('new_application.import_error', { error: (e as Error).message }))
     } finally {
       if (current === latestImport.current) setBusy('')
     }
@@ -68,15 +70,15 @@ export function NewApplicationPage() {
   // The link typed by the user wins over whatever the AI reads in the text.
   const withTypedUrl = (values: ApplicationFormValues) => ({ ...values, job_url: jobUrl.trim() || values.job_url })
   async function extract() {
-    if (changedKeys(formFromApplication(), form).some(key => key !== 'job_url') && !window.confirm('Replace the fields already filled in with a new AI proposal?')) return
+    if (changedKeys(formFromApplication(), form).some(key => key !== 'job_url') && !window.confirm(t('new_application.replace_fields'))) return
     setBusy('extracting'); setMessage('')
     try {
       const { suggestion, ...used } = await request<{ suggestion: Suggestion; provider: string; model: string }>('/extract', 'POST', { text: jobPosting, provider, ...(model.trim() && { model: model.trim() }) })
       const proposed = withTypedUrl(formFromSuggestion(suggestion))
       setForm(proposed); setSuggested(new Set(changedKeys(withTypedUrl(formFromApplication()), proposed)))
       setSections({ keyRequirements: suggestion.keyRequirements.join('\n'), niceToHave: suggestion.niceToHave.join('\n'), technologies: suggestion.technologies.join('\n') })
-      setErrors({}); setStep('review'); setMessage(`Filled in by ${used.model}. Check every field before creating.`)
-    } catch (e) { setMessage(`${(e as Error).message} You can try again, pick another model or fill in manually.`) }
+      setErrors({}); setStep('review'); setMessage(t('new_application.extracted', { model: used.model }))
+    } catch (e) { setMessage(t('new_application.extract_error', { error: (e as Error).message })) }
     finally { setBusy('') }
   }
   function edit(value: ApplicationFormValues) {
@@ -88,7 +90,7 @@ export function NewApplicationPage() {
     const fields = fieldsFromForm(form)
     const found = validateFields(fields)
     setErrors(found)
-    if (Object.keys(found).length > 0) { setMessage('Fix the highlighted fields.'); return }
+    if (Object.keys(found).length > 0) { setMessage(t('fix_fields', { ns: 'common' })); return }
     setBusy('saving'); setMessage('')
     try {
       const jobSections = Object.fromEntries(EXTRACTED_SECTIONS.map(section => [section, linesToItems(sections[section])]))
@@ -102,53 +104,53 @@ export function NewApplicationPage() {
     finally { setBusy('') }
   }
   if (step === 'posting') return <article className="detail">
-    <Link to="/" className="back">← Board</Link>
-    <h1>New application</h1>
-    <p className="muted">Step 1 of 2. Import the posting from its link or paste it, then let AI propose the fields; you review everything on the next step. Nothing is saved yet.</p>
+    <Link to="/" className="back">{t('back_to_board', { ns: 'common' })}</Link>
+    <h1>{t('new_application', { ns: 'common' })}</h1>
+    <p className="muted">{t('new_application.step_one')}</p>
     <form className="application-form" onSubmit={e => { e.preventDefault(); void extract() }}>
-      <label>Job URL<input type="url" value={jobUrl} disabled={!!busy} placeholder="https://" onChange={e => { setJobUrl(e.target.value); setDirty(true) }}
+      <label>{t('new_application.job_url')}<input type="url" value={jobUrl} disabled={!!busy} placeholder="https://" onChange={e => { setJobUrl(e.target.value); setDirty(true) }}
         onKeyDown={e => { if (e.key !== 'Enter') return; e.preventDefault(); if (jobUrl.trim()) void importFromUrl() }} /></label>
       <div className="toolbar">
-        <button type="button" disabled={!!busy || !jobUrl.trim()} onClick={() => void importFromUrl()}>{busy === 'importing' ? 'Importing…' : 'Import from URL'}</button>
-        <span className="muted">Public pages only. Importing does not use AI and saves nothing.</span>
+        <button type="button" disabled={!!busy || !jobUrl.trim()} onClick={() => void importFromUrl()}>{busy === 'importing' ? t('new_application.importing') : t('new_application.import_url')}</button>
+        <span className="muted">{t('new_application.import_hint')}</span>
       </div>
-      <p className="muted">or</p>
-      <label>Paste job description<textarea rows={16} value={jobPosting} disabled={!!busy} onChange={e => { setJobPosting(e.target.value); setDirty(true) }} /></label>
+      <p className="muted">{t('new_application.or')}</p>
+      <label>{t('new_application.paste_description')}<textarea rows={16} value={jobPosting} disabled={!!busy} onChange={e => { setJobPosting(e.target.value); setDirty(true) }} /></label>
       {imported && <div className="toolbar">
-        <span className="muted">Imported from {imported.resolvedUrl}{jobPosting !== imported.text && ', edited since'}.</span>
-        <button type="button" disabled={!!busy} onClick={() => setImported(null)}>Treat as pasted text</button>
+        <span className="muted">{t('new_application.imported_from', { url: imported.resolvedUrl, edited: jobPosting !== imported.text ? t('new_application.edited_since') : '' })}</span>
+        <button type="button" disabled={!!busy} onClick={() => setImported(null)}>{t('new_application.treat_as_pasted')}</button>
       </div>}
       {settings && <ModelPicker settings={settings} provider={provider} model={model} disabled={!!busy} onChange={(nextProvider, nextModel) => { setProvider(nextProvider); setModel(nextModel) }} />}
-      {settings && !hasKey && <p className="muted">This provider has no API key yet. Add one in <Link to="/settings">Settings</Link>.</p>}
-      <p className="muted">Only the posting text is sent to the provider; CVs and notes never are.</p>
+      {settings && !hasKey && <p className="muted">{t('new_application.provider_no_key')}<Link to="/settings">{t('settings', { ns: 'common' })}</Link>.</p>}
+      <p className="muted">{t('new_application.privacy')}</p>
       <div className="toolbar">
-        <button disabled={!!busy || !jobPosting.trim() || !hasKey}>{busy === 'extracting' ? 'Reading the posting…' : 'Extract fields'}</button>
-        <button type="button" disabled={!!busy} onClick={() => { setForm(withTypedUrl(form)); setStep('review'); setMessage('') }}>Fill in manually</button>
+        <button disabled={!!busy || !jobPosting.trim() || !hasKey}>{busy === 'extracting' ? t('new_application.extracting') : t('new_application.extract_fields')}</button>
+        <button type="button" disabled={!!busy} onClick={() => { setForm(withTypedUrl(form)); setStep('review'); setMessage('') }}>{t('new_application.fill_manually')}</button>
       </div>
       <p role="status">{message}</p>
     </form>
   </article>
   return <article className="detail">
-    <Link to="/" className="back">← Board</Link>
-    <h1>New application</h1>
-    <p className="muted">Step 2 of 2. {slug ? `Application identifier: ${slug}. A suffix is added if needed.` : 'Fill in company and role.'} Leave "Applied on" empty if you have not applied yet.</p>
+    <Link to="/" className="back">{t('back_to_board', { ns: 'common' })}</Link>
+    <h1>{t('new_application', { ns: 'common' })}</h1>
+    <p className="muted">{t('new_application.step_two', { identifier: slug ? t('new_application.identifier', { slug }) : t('new_application.fill_company_role') })}</p>
     <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void create() }}>
       {profile?.salaryExpected && profile.salaryCurrency && profile.salaryPeriod && <button type="button" disabled={!!busy} onClick={() => {
-        if (hasSalaryData(form) && !window.confirm('Replace the complete salary group with your profile defaults?')) return
+        if (hasSalaryData(form) && !window.confirm(t('new_application.replace_salary'))) return
         edit(applyProfileSalary(form, profile)); setErrors({})
-      }}>Use profile salary defaults</button>}
-      {profileError && <p role="status">{profileError} <button type="button" disabled={!!busy} onClick={() => void loadProfile()}>Retry</button></p>}
+      }}>{t('new_application.profile_salary')}</button>}
+      {profileError && <p role="status">{profileError} <button type="button" disabled={!!busy} onClick={() => void loadProfile()}>{t('retry', { ns: 'common' })}</button></p>}
       <ApplicationForm value={form} errors={errors} disabled={!!busy} suggested={suggested} onChange={edit} />
       {jobPosting.trim() && <fieldset>
-        <legend>Job description (one item per line)</legend>
+        <legend>{t('new_application.description_lists')}</legend>
         <div className="form-grid">
-          {EXTRACTED_SECTIONS.map(section => <label key={section}>{LIST_SECTION_LABELS[section]}<textarea rows={8} value={sections[section]} disabled={!!busy} onChange={e => { setSections({ ...sections, [section]: e.target.value }); setDirty(true) }} /></label>)}
+          {EXTRACTED_SECTIONS.map(section => <label key={section}>{t(`new_application.${({ keyRequirements: 'key_requirements', niceToHave: 'nice_to_have', technologies: 'technologies' } as const)[section]}`)}<textarea rows={8} value={sections[section]} disabled={!!busy} onChange={e => { setSections({ ...sections, [section]: e.target.value }); setDirty(true) }} /></label>)}
         </div>
-        <p className="muted">The posting text as you reviewed it — pasted or imported — is saved alongside these lists, with where it came from.</p>
+        <p className="muted">{t('new_application.posting_saved_hint')}</p>
       </fieldset>}
       <div className="toolbar">
-        <button type="button" disabled={!!busy} onClick={() => { setStep('posting'); setMessage('') }}>← Back to posting</button>
-        <button disabled={!!busy}>{busy === 'saving' ? 'Saving…' : 'Create application'}</button>
+        <button type="button" disabled={!!busy} onClick={() => { setStep('posting'); setMessage('') }}>{t('new_application.back_to_posting')}</button>
+        <button disabled={!!busy}>{busy === 'saving' ? t('saving', { ns: 'common' }) : t('new_application.create')}</button>
       </div>
       <p role="status">{message}</p>
     </form>

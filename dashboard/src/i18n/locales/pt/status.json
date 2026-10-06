@@ -1,0 +1,29 @@
+{
+  "status": {
+    "interested": "Interessado",
+    "applied": "Candidatura enviada",
+    "recruiter": "Recrutador",
+    "technical_interview": "Entrevista técnica",
+    "final_interview": "Entrevista final",
+    "offer": "Proposta",
+    "accepted": "Aceite",
+    "rejected": "Rejeitada",
+    "archived": "Arquivada"
+  },
+  "priority": {
+    "high": "Alta",
+    "medium": "Média",
+    "low": "Baixa"
+  },
+  "contract_type": {
+    "permanent": "Sem termo",
+    "b2b": "B2B",
+    "contract": "Contrato"
+  },
+  "task_group": {
+    "overdue": "Em atraso",
+    "today": "Hoje",
+    "upcoming": "Próximas",
+    "no_date": "Sem data"
+  }
+}

@@ -1,14 +1,16 @@
+import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { useApplications } from '../data/loadApplications'
 import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
 
 export function DocumentPage() {
+  const { t } = useTranslation('pages')
   const { findApplication } = useApplications()
   const { slug, '*': path = '' } = useParams()
   const application = findApplication(slug)
   const content = application?.documents[path]
-  if (!application || content === undefined) return <p className="muted">Document not found.</p>
+  if (!application || content === undefined) return <p className="muted">{t('document.document_not_found')}</p>
 
   return (
     <article className="detail">
@@ -18,7 +20,7 @@ export function DocumentPage() {
       <p className="muted">
         {application.data.company} / {path}
       </p>
-      {path === JOB_DESCRIPTION_FILE && <Link to={`/applications/${application.slug}/job-description`}>Edit job description</Link>}
+      {path === JOB_DESCRIPTION_FILE && <Link to={`/applications/${application.slug}/job-description`}>{t('document.edit_job_description')}</Link>}
       <div className="markdown">
         <Markdown>{content}</Markdown>
       </div>

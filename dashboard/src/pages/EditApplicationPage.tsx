@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApplicationForm } from '../components/ApplicationForm'
@@ -6,13 +7,15 @@ import { request, useApplications, type LiveApplication } from '../data/loadAppl
 import { fieldsFromForm, formFromApplication, validateFields, type FieldErrors } from '../domain/applicationForm'
 
 export function EditApplicationPage() {
+  const { t } = useTranslation('pages')
   const { findApplication } = useApplications()
   const application = findApplication(useParams().slug)
-  if (!application) return <p className="muted">Application not found.</p>
+  if (!application) return <p className="muted">{t('application_not_found', { ns: 'common' })}</p>
   return <EditApplication key={application.slug} application={application} />
 }
 
 function EditApplication({ application }: { application: LiveApplication }) {
+  const { t } = useTranslation('pages')
   // The copy opened for editing: a file changed elsewhere meanwhile must be rejected, not overwritten.
   const [opened] = useState(application)
   const [form, setForm] = useState(() => formFromApplication(opened.data))
@@ -28,7 +31,7 @@ function EditApplication({ application }: { application: LiveApplication }) {
     const fields = fieldsFromForm(form, opened.data)
     const found = validateFields(fields)
     setErrors(found)
-    if (Object.keys(found).length > 0) { setMessage('Fix the highlighted fields.'); return }
+    if (Object.keys(found).length > 0) { setMessage(t('fix_fields', { ns: 'common' })); return }
     setBusy(true); setMessage('')
     try {
       await request(page, 'PATCH', { revision: opened.revision, fields })
@@ -38,11 +41,11 @@ function EditApplication({ application }: { application: LiveApplication }) {
   }
   return <article className="detail">
     <Link to={page} className="back">← {opened.data.company} — {opened.data.role}</Link>
-    <h1>Edit application</h1>
-    <p className="muted">Status changes from the board, timeline events and notes from the application page.</p>
+    <h1>{t('edit_application.title')}</h1>
+    <p className="muted">{t('edit_application.help')}</p>
     <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void save() }}>
       <ApplicationForm value={form} errors={errors} disabled={busy} onChange={value => { setForm(value); setDirty(true) }} />
-      <div className="toolbar"><button disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>{dirty && <span>Unsaved changes</span>}</div>
+      <div className="toolbar"><button disabled={busy}>{busy ? t('saving', { ns: 'common' }) : t('save_changes', { ns: 'common' })}</button>{dirty && <span>{t('unsaved_changes', { ns: 'common' })}</span>}</div>
       <p role="status">{message}</p>
     </form>
   </article>

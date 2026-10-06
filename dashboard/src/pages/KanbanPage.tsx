@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { ApplicationCard } from '../components/ApplicationCard'
 import { request, useApplications } from '../data/loadApplications'
@@ -5,6 +6,7 @@ import { CLOSED_STATUSES, STATUSES, STATUS_LABELS, type Status } from '../domain
 import { todayIsoDate } from '../domain/format'
 
 export function KanbanPage() {
+  const { t } = useTranslation('pages')
   const { applications, reload } = useApplications()
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -13,7 +15,7 @@ export function KanbanPage() {
     const a = applications.find(a => a.slug === slug)
     if (!a || a.data.status === status || pending) return
     const keepNextAction = !!a.data.next_action && CLOSED_STATUSES.includes(status)
-      ? window.confirm('Keep the pending next action after closing this application? Cancel removes the action.') : false
+      ? window.confirm(t('kanban.keep_next_action')) : false
     setPending(slug); setError('')
     try {
       await request(`/applications/${slug}/status`, 'PATCH', { status, revision: a.revision, date: todayIsoDate(), keepNextAction })
@@ -22,13 +24,13 @@ export function KanbanPage() {
     finally { setPending(null) }
   }
   return <>
-    <p aria-live="polite">{pending ? 'Saving status…' : 'Drag a card to a column.'}</p>
+    <p aria-live="polite">{pending ? t('kanban.saving_status') : t('kanban.drag_hint')}</p>
     {error && <p role="alert">{error}</p>}
     <div className="board">
       {STATUSES.map(status => {
         const inColumn = applications.filter(a => a.data.status === status)
         return <section key={status} className={`column ${dragged ? 'drop-target' : ''}`} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }} onDrop={e => { e.preventDefault(); if (dragged) void move(dragged, status); setDragged(null) }}>
-          <h2>{STATUS_LABELS[status]} <span className="count">{inColumn.length}</span></h2>
+          <h2>{t(STATUS_LABELS[status], { ns: 'status' })} <span className="count">{inColumn.length}</span></h2>
           {inColumn.map(a => <div key={a.slug} draggable={!pending} onDragStart={e => { setDragged(a.slug); e.dataTransfer.setData('text/plain', a.slug); e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragged(null)}>
             <ApplicationCard application={a} />
           </div>)}

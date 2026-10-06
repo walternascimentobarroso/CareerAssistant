@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { ApplicationHistory } from '../components/ApplicationHistory'
 import { InterviewForm } from '../components/InterviewForm'
 import { AddNote } from '../components/AddNote'
@@ -16,14 +17,15 @@ import { STATUS_LABELS } from '../domain/constants'
 import { formatDate, formatRate, humanize } from '../domain/format'
 
 const TOP_LEVEL_DOCUMENTS = [
-  { path: JOB_DESCRIPTION_FILE, label: 'Job Description' },
-  { path: 'cv.md', label: 'CV document' },
+  { path: JOB_DESCRIPTION_FILE, label: 'application.job_description' },
+  { path: 'cv.md', label: 'application.cv_document' },
 ]
 
 export function ApplicationPage() {
+  const { t } = useTranslation('pages')
   const { findApplication } = useApplications()
   const application = findApplication(useParams().slug)
-  if (!application) return <p className="muted">Application not found.</p>
+  if (!application) return <p className="muted">{t('application_not_found', { ns: 'common' })}</p>
 
   const { data, notes } = application
   const timeline = [...data.timeline].sort((a, b) => a.date.localeCompare(b.date))
@@ -31,43 +33,43 @@ export function ApplicationPage() {
   return (
     <article className="detail">
       <Link to="/" className="back">
-        ← Board
+        {t('back_to_board', { ns: 'common' })}
       </Link>
       <header>
         <h1>{data.company}</h1>
         <p className="detail-role">{data.role}</p>
         <div className="detail-meta">
-          <span className="badge status">{STATUS_LABELS[data.status]}</span>
+          <span className="badge status">{t(STATUS_LABELS[data.status], { ns: 'status' })}</span>
           <Badges data={data} />
           {data.location && <span className="muted">{data.location}</span>}
-          {data.applied_at && <span className="muted">Applied {formatDate(data.applied_at)}</span>}
+          {data.applied_at && <span className="muted">{t('application.applied', { date: formatDate(data.applied_at) })}</span>}
           {data.job_url && (
             <a href={data.job_url} target="_blank" rel="noreferrer">
-              Job posting ↗
+              {t('application.job_posting')}
             </a>
           )}
-          <Link to={`/applications/${application.slug}/edit`}>Edit application</Link>
-          <Link to={`/applications/${application.slug}/preparation`}>Prepare application</Link>
+          <Link to={`/applications/${application.slug}/edit`}>{t('application.edit')}</Link>
+          <Link to={`/applications/${application.slug}/preparation`}>{t('application.prepare')}</Link>
         </div>
       </header>
 
       {data.next_action && (
-        <Section title="Next Action">
+        <Section title={t('application.next_action')}>
           <NextActionBox action={data.next_action} />
         </Section>
       )}
 
       <div className="detail-grid">
         {data.rate && (
-          <Section title="Rate">
-            <p className="muted">Basis: {humanize(data.rate.basis ?? 'unknown')}</p>
-            {data.rate.requested !== undefined && <p>Requested: {formatRate(data.rate.requested, data.rate)}</p>}
-            {data.rate.minimum !== undefined && <p>Minimum: {formatRate(data.rate.minimum, data.rate)}</p>}
+          <Section title={t('application.rate')}>
+            <p className="muted">{t('application.basis', { basis: t('application.rate_basis.' + (data.rate.basis ?? 'unknown')) })}</p>
+            {data.rate.requested !== undefined && <p>{t('application.requested', { amount: formatRate(data.rate.requested, data.rate) })}</p>}
+            {data.rate.minimum !== undefined && <p>{t('application.minimum', { amount: formatRate(data.rate.minimum, data.rate) })}</p>}
           </Section>
         )}
 
         {data.contact && (
-          <Section title="Contact">
+          <Section title={t('application.contact')}>
             <p>{data.contact.name}</p>
             {data.contact.role && <p className="muted">{data.contact.role}</p>}
             {data.contact.email && <p>{data.contact.email}</p>}
@@ -76,15 +78,15 @@ export function ApplicationPage() {
           </Section>
         )}
 
-        <Section title="Documents">
+        <Section title={t('application.documents')}>
           <DocumentLinks application={application} />
           {!(JOB_DESCRIPTION_FILE in application.documents) && (
-            <Link to={`/applications/${application.slug}/job-description`}>Add job description</Link>
+            <Link to={`/applications/${application.slug}/job-description`}>{t('application.add_job_description')}</Link>
           )}
           <AttachCv application={application} />
         </Section>
 
-        <Section title="Interviews">
+        <Section title={t('application.interviews')}>
           <InterviewLinks application={application} />
           <InterviewForm application={application} />
         </Section>
@@ -92,8 +94,8 @@ export function ApplicationPage() {
 
       <ApplicationHistory application={application} />
 
-      <Section title="Timeline">
-        {timeline.length === 0 && <p className="muted">No events yet.</p>}
+      <Section title={t('application.timeline')}>
+        {timeline.length === 0 && <p className="muted">{t('application.no_events')}</p>}
         <ol className="timeline">
           {timeline.map((entry) => (
             <li key={application.eventIds?.[data.timeline.indexOf(entry)] ?? `${data.timeline.indexOf(entry)}`}>
@@ -107,7 +109,7 @@ export function ApplicationPage() {
       </Section>
 
       {data.tags.length > 0 && (
-        <Section title="Tags">
+        <Section title={t('application.tags')}>
           <div className="badges">
             {data.tags.map((tag) => (
               <span key={tag} className="badge">
@@ -118,7 +120,7 @@ export function ApplicationPage() {
         </Section>
       )}
 
-      <Section title="Notes">
+      <Section title={t('application.notes')}>
         {notes && (
           <div className="markdown">
             <Markdown>{notes}</Markdown>
@@ -127,7 +129,7 @@ export function ApplicationPage() {
         <AddNote application={application} />
       </Section>
 
-      <Section title="Remove">
+      <Section title={t('application.remove')}>
           <DeleteApplication application={application} />
       </Section>
     </article>
@@ -144,14 +146,15 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function DocumentLinks({ application }: { application: Application }) {
+  const { t } = useTranslation('pages')
   const available = TOP_LEVEL_DOCUMENTS.filter(({ path }) => path in application.documents)
-  if (available.length === 0) return <p className="muted">No documents yet.</p>
+  if (available.length === 0) return <p className="muted">{t('application.no_documents')}</p>
 
   return (
     <ul className="links">
       {available.map(({ path, label }) => (
         <li key={path}>
-          <Link to={`/applications/${application.slug}/doc/${path}`}>{label}</Link>
+          <Link to={`/applications/${application.slug}/doc/${path}`}>{t(label)}</Link>
         </li>
       ))}
     </ul>
@@ -159,7 +162,8 @@ function DocumentLinks({ application }: { application: Application }) {
 }
 
 function InterviewLinks({ application }: { application: Application }) {
-  if (application.interviews.length === 0) return <p className="muted">No interviews yet.</p>
+  const { t } = useTranslation('pages')
+  if (application.interviews.length === 0) return <p className="muted">{t('application.no_interviews')}</p>
 
   return (
     <ul className="links">

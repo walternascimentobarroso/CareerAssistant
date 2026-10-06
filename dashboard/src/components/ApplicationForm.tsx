@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { InputHTMLAttributes, ReactNode } from 'react'
 import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, CURRENCIES, PRIORITIES, PRIORITY_LABELS, RATE_PERIODS } from '../domain/constants'
 import { currencyLabel } from '../domain/format'
@@ -7,6 +8,7 @@ type TextKey = { [K in keyof ApplicationFormValues]: ApplicationFormValues[K] ex
 type Props = { value: ApplicationFormValues; errors: FieldErrors; disabled: boolean; onChange: (value: ApplicationFormValues) => void; suggested?: ReadonlySet<keyof ApplicationFormValues> }
 
 export function ApplicationForm({ value, errors, disabled, onChange, suggested }: Props) {
+  const { t } = useTranslation('status')
   const set = (changes: Partial<ApplicationFormValues>) => onChange({ ...value, ...changes })
   const input = (key: TextKey, label: string, path: string, attributes: InputHTMLAttributes<HTMLInputElement> = {}) => (
     <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
@@ -17,7 +19,7 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
     <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
       <select value={value[key]} disabled={disabled} onChange={e => set({ [key]: e.target.value })}>
         {allowEmpty && <option value="">Not set</option>}
-        {options.map(option => <option key={option} value={option}>{labels?.[option] ?? option}</option>)}
+        {options.map(option => <option key={option} value={option}>{labels?.[option] ? (key === 'priority' || key === 'type' ? t(labels[option]) : labels[option]) : option}</option>)}
       </select>
     </Field>
   )

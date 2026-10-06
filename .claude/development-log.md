@@ -74,3 +74,36 @@
    - Cobertura completa de migrações, concorrência, imutabilidade de snapshots, API HTTP e ciclo de vida de dados.
 3. **Documentação:**
    - Criado e consolidado o documento de arquitetura [`.claude/application-agent.md`](file:///Users/macbook/projets/CareerAssistant/.claude/application-agent.md), incluindo secção detalhada de gaps conhecidos e extensões para fases futuras de automação com Playwright.
+
+---
+
+# Registo de Desenvolvimento — Internacionalização (i18n)
+
+**Data:** 2026-10-06  
+**Sessão:** Fase 3 — Validação Estrutural e de Qualidade de i18n  
+**Estado:** Concluído com sucesso (401/401 chaves validadas, 100% paridade PT/EN, build limpa)
+
+---
+
+## 1. O que foi validado e implementado
+
+### A. Validação de Paridade de Chaves (Script `/tmp/validate_i18n.js`)
+- Executada análise exaustiva dos 6 ficheiros de locale (`dashboard/src/i18n/locales/{pt,en}/{common,status,pages}.json`).
+- **Namespace `common`:** 37 chaves em PT e 37 chaves em EN (100% de correspondência).
+- **Namespace `status`:** 19 chaves em PT e 19 chaves em EN (100% de correspondência).
+- **Namespace `pages`:** 345 chaves em PT e 345 chaves em EN (100% de correspondência cobrindo todas as 14 páginas).
+- **Total:** 401 chaves folha extraídas. Zero chaves em falta em EN, zero chaves em falta em PT. Zero assimetrias.
+
+### B. Avaliação de Qualidade das Traduções
+- Amostragem sistemática realizada nos 3 namespaces (12 chaves em cada).
+- **Inglês (EN):** Terminologia natural, idiomática e correta no contexto de rastreio de candidaturas a emprego (ex.: "Applied", "Technical Interview", "Save changes", "Unable to load profile salary defaults").
+- **Português (PT):** Português padrão/europeu rigoroso e consistente com a convenção do projeto (ex.: "Candidatura enviada", "Guardar alterações", «Data de candidatura», "Perfil pessoal").
+- **Chaves Idênticas:** Confirmado que as únicas strings idênticas entre PT e EN são acrónimos técnicos ("CVs", "B2B"), nomes próprios ("Career Assistant", "LinkedIn", "GitHub"), formatos ("Markdown") e códigos de nível internacional CEFR ("A1"–"C2"). Sem chaves esquecidas em inglês no ficheiro português.
+
+### C. Compilação e Testes
+- `npm run build` executado com sucesso: 0 erros TypeScript no cliente React e rotas i18n.
+- Suíte de 40 testes mantida a passar na totalidade (`npm test` com base de dados de integração).
+
+### D. Documentação Atualizada
+- Atualizado [`.claude/i18n-plan.md`](file:///Users/macbook/projets/CareerAssistant/.claude/i18n-plan.md) com a secção `## Estado actual`, detalhando o inventário de chaves, os ficheiros modificados no Lote 1 e Lote 2, e pontos de melhoria futura (nomenclatura semântica de chaves longas, pluralização formal i18next e formatação localizada de moedas/datas).
+

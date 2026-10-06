@@ -17,15 +17,15 @@ export const INITIAL_STATUS: Status = 'interested'
 export const APPLIED_STATUS: Status = 'applied'
 
 export const STATUS_LABELS: Record<Status, string> = {
-  interested: 'Interested',
-  applied: 'Applied',
-  recruiter: 'Recruiter',
-  technical_interview: 'Technical Interview',
-  final_interview: 'Final Interview',
-  offer: 'Offer',
-  accepted: 'Accepted',
-  rejected: 'Rejected',
-  archived: 'Archived',
+  interested: 'status.interested',
+  applied: 'status.applied',
+  recruiter: 'status.recruiter',
+  technical_interview: 'status.technical_interview',
+  final_interview: 'status.final_interview',
+  offer: 'status.offer',
+  accepted: 'status.accepted',
+  rejected: 'status.rejected',
+  archived: 'status.archived',
 }
 
 export const PRIORITIES = ['high', 'medium', 'low'] as const
@@ -33,9 +33,9 @@ export const PRIORITIES = ['high', 'medium', 'low'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
 export const PRIORITY_LABELS: Record<Priority, string> = {
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
+  high: 'priority.high',
+  medium: 'priority.medium',
+  low: 'priority.low',
 }
 
 export const CONTRACT_TYPES = ['permanent', 'b2b', 'contract'] as const
@@ -43,9 +43,9 @@ export const CONTRACT_TYPES = ['permanent', 'b2b', 'contract'] as const
 export type ContractType = (typeof CONTRACT_TYPES)[number]
 
 export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
-  permanent: 'Permanent',
-  b2b: 'B2B',
-  contract: 'Contract',
+  permanent: 'contract_type.permanent',
+  b2b: 'contract_type.b2b',
+  contract: 'contract_type.contract',
 }
 
 /** Offered in the form; the schema still accepts any 3-letter code written by hand. */
@@ -61,10 +61,10 @@ export const TASK_GROUPS = ['overdue', 'today', 'upcoming', 'no_date'] as const
 export type TaskGroup = (typeof TASK_GROUPS)[number]
 
 export const TASK_GROUP_LABELS: Record<TaskGroup, string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  upcoming: 'Upcoming',
-  no_date: 'No date',
+  overdue: 'task_group.overdue',
+  today: 'task_group.today',
+  upcoming: 'task_group.upcoming',
+  no_date: 'task_group.no_date',
 }
 
 export const CLOSED_STATUSES: readonly Status[] = ['accepted', 'rejected', 'archived']
