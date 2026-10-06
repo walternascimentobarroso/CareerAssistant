@@ -6,23 +6,28 @@ import { AnswerInput } from '../components/AnswerInput'
 import { StepIndicator } from '../components/StepIndicator'
 import { confirmDiscard, useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type Cv, type LiveApplication } from '../data/loadApplications'
-import { ANSWER_TYPES, KNOWLEDGE_CATEGORIES, SCOPE_TYPES, formatAnswer, type AnswerType, type AnswerValue, type ScopeType } from '../domain/knowledge'
+import { KNOWLEDGE_CATEGORIES, SCOPE_TYPES, formatAnswer, normalizeText, type AnswerType, type AnswerValue, type ScopeType } from '../domain/knowledge'
 import { applicationFlowSteps } from '../domain/applicationFlow'
 import { PROFILE_CONCEPTS, answerFits, preparationSummary, type Approval, type Preparation, type PreparationAnswer } from '../domain/applicationPreparation'
 
 type Loaded = { preparation: Preparation }
 type Context = { country: string; language: string; cvRequired: boolean }
 type Draft = {
-  id: string | null; question: string; concept: string; type: AnswerType; options: string; required: boolean; answer: AnswerValue | null
-  accept: boolean; remember: boolean; rememberConcept: string; category: string; scopes: ScopeType[]
+  id: string | null; question: string; type: AnswerType; options: string; required: boolean; answer: AnswerValue | null
+  accept: boolean; remember: boolean; category: string; scopes: ScopeType[]
 }
 // A remembered answer stays with this application unless a wider scope is chosen.
-const emptyDraft: Draft = { id: null, question: '', concept: '', type: 'text', options: '', required: true, answer: null, accept: false, remember: false, rememberConcept: '', category: 'other', scopes: ['APPLICATION'] }
-const draftFrom = (answer: PreparationAnswer): Draft => ({ ...emptyDraft, id: answer.id, question: answer.question, concept: answer.concept ?? '', type: answer.type, options: answer.options.join('\n'),
-  required: answer.required, answer: answer.answer, accept: answer.approval === 'accepted', rememberConcept: answer.concept ?? answer.evidence?.concept ?? '' })
+const emptyDraft: Draft = { id: null, question: '', type: 'text', options: '', required: true, answer: null, accept: false, remember: false, category: 'other', scopes: ['APPLICATION'] }
+const draftFrom = (answer: PreparationAnswer): Draft => ({ ...emptyDraft, id: answer.id, question: answer.question, type: answer.type, options: answer.options.join('\n'),
+  required: answer.required, answer: answer.answer, accept: answer.approval === 'accepted' })
 const optionsOf = (draft: Draft) => draft.options.split('\n').map(line => line.trim()).filter(Boolean)
-const requirementOf = (draft: Draft) => ({ question: draft.question, concept: draft.concept.trim() || null, type: draft.type, options: optionsOf(draft), required: draft.required })
+const requirementOf = (draft: Draft) => ({ question: draft.question, concept: null, type: draft.type, options: optionsOf(draft), required: draft.required })
 const contextOf = (preparation: Preparation): Context => ({ country: preparation.country ?? '', language: preparation.language, cvRequired: preparation.cvRequired })
+
+function questionConcept(question: string) {
+  const words = normalizeText(question).split(' ').filter(Boolean).slice(0, 5).join('_')
+  return `other.${words || 'answer'}`
+}
 
 export function PreparationPage() {
   const { t } = useTranslation('pages')
@@ -92,6 +97,11 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     await run(() => request<Loaded>(`/applications/${application.slug}/preparations`, 'POST', {}), t('preparation.cv_adapted'))
   }
 
+  async function scanForm() {
+    const loaded = await run(() => request<Loaded>(`/applications/${application.slug}/preparation/scan-form`, 'POST', {}), t('preparation.questions_loaded'))
+    if (loaded) setContext(contextOf(loaded))
+  }
+
   async function saveContext(current: Context) {
     const saved = await run(() => request<Loaded>(path, 'PUT', { country: current.country.trim() || null, language: current.language, cvRequired: current.cvRequired, revision }), t('preparation.context_saved'))
     if (saved) setContext(contextOf(saved))
@@ -103,8 +113,13 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
         remember: current.remember ? { concept: current.rememberConcept, category: current.category, scopes: current.scopes } : undefined }), t('preparation.answer_saved'))
     if (saved) setDraft(null)
   }
-  const review = (answer: PreparationAnswer, approval: Approval, value = answer.answer) => run(() => request<Loaded>(`${path}/answers/${answer.id}`, 'PUT',
-    { question: answer.question, concept: answer.concept, type: answer.type, options: answer.options, required: answer.required, answer: value, approval, revision }))
+  const review = (answer: PreparationAnswer, approval: Approval, value = answer.answer) => {
+    const autoRemember = approval === 'accepted' && value && answer.source !== 'KNOWLEDGE_BASE' && answer.source !== 'PROFILE'
+      ? { concept: answer.concept || questionConcept(answer.question), category: 'other', scopes: ['APPLICATION'] as ScopeType[] }
+      : undefined
+    return run(() => request<Loaded>(`${path}/answers/${answer.id}`, 'PUT',
+      { question: answer.question, concept: answer.concept, type: answer.type, options: answer.options, required: answer.required, answer: value, approval, revision, remember: autoRemember }))
+  }
   function remove(answer: PreparationAnswer) {
     if (window.confirm(t('preparation.confirm_remove', { question: answer.question }))) void run(() => request<Loaded>(`${path}/answers/${answer.id}`, 'DELETE', { revision }))
   }
@@ -172,6 +187,7 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
 
     <section className="detail-section"><h2>{t('preparation.questions_section')}</h2>
       <div className="toolbar">
+        {application.data.apply_url && <button disabled={busy || draft !== null || preparation.answers.length > 0} onClick={() => void scanForm()}>{t('preparation.scan_form')}</button>}
         <button disabled={busy || draft !== null} onClick={() => setDraft(emptyDraft)}>{t('preparation.add_question')}</button>
         <button disabled={busy || draft !== null} onClick={() => void run(() => request<Loaded>(`${path}/resolve`, 'POST', { revision }), t('preparation.answers_resolved'))}>{t('preparation.resolve_answers')}</button>
         <span className="muted">{t('preparation.resolve_hint')}</span>

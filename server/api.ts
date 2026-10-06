@@ -100,6 +100,14 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
         await closeSession(input.sessionId)
         return send(200, { ok: true })
       }
+      if (collection === 'applications' && id && action === 'preparation' && target === 'scan-form' && segments.length === 5 && req.method === 'POST') {
+        const ctx = await store.scanContext(id)
+        const inspection = await formAgent.inspect(ctx.applyUrl, [], undefined)
+        await closeSession(inspection.sessionId)
+        const saved = await store.saveFormFields(ctx.preparationId, inspection.fields)
+        const revision = saved.preparation.revision
+        return send(200, await store.resolvePreparation(ctx.preparationId, { revision }))
+      }
       if (collection === 'applications' && id && action === 'preparation' && target === 'inspect-form' && segments.length === 5 && req.method === 'POST') {
         z.strictObject({ provider: provider.optional(), model: envValue.optional() }).parse(await body(req))
         const context = await store.formContext(id)

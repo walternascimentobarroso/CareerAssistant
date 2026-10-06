@@ -315,6 +315,8 @@
     "use_this_version": "Usar esta versão",
     "question_added": "Pergunta adicionada.",
     "version_to_send": "Versão a enviar",
+    "scan_form": "Carregar perguntas do formulário",
+    "questions_loaded": "Perguntas carregadas do formulário.",
     "resolve_answers": "Preencher respostas automaticamente",
     "use_this_answer": "Usar esta resposta",
     "reusable_answer": "Resposta reutilizável",

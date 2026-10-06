@@ -315,6 +315,8 @@
     "use_this_version": "Use this version",
     "question_added": "Question added.",
     "version_to_send": "Version to send",
+    "scan_form": "Load form questions",
+    "questions_loaded": "Questions loaded from the form.",
     "resolve_answers": "Fill in answers automatically",
     "use_this_answer": "Use this answer",
     "reusable_answer": "Reusable answer",

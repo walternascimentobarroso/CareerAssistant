@@ -607,6 +607,33 @@ export class PostgresStore {
     const result = await this.pool.query('SELECT id FROM applications WHERE id=$2 AND (slug=$1 OR id::text=$1)', [slug, applicationId])
     if (!result.rowCount) throw new StoreError(409, 'Form session belongs to a different application')
   }
+  async scanContext(slug: string) {
+    this.id(slug)
+    const row = (await this.pool.query(`SELECT p.id AS preparation_id,p.row_version AS preparation_revision,j.apply_url
+      FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
+      JOIN application_preparations p ON p.application_id=a.id AND p.deleted_at IS NULL
+      WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`, [slug])).rows[0]
+    if (!row) throw new StoreError(404, 'Application preparation not found')
+    if (!row.apply_url) throw new StoreError(400, 'Save an application URL before scanning the form')
+    return { preparationId: row.preparation_id as string, preparationRevision: String(row.preparation_revision), applyUrl: row.apply_url as string }
+  }
+  async saveFormFields(preparationId: string, fields: { label: string; type: string; required: boolean }[]) {
+    const typeMap: Record<string, string> = {
+      text: 'text', email: 'text', tel: 'text', url: 'text', textarea: 'text', search: 'text', number: 'number',
+      checkbox: 'boolean', radio: 'single_select', select: 'single_select',
+    }
+    return transaction(this.pool, async client => {
+      const existing = (await client.query('SELECT COUNT(*) FROM application_answers WHERE preparation_id=$1 AND deleted_at IS NULL', [preparationId])).rows[0]
+      if (Number(existing.count) > 0) return this.preparationView(client, preparationId)
+      for (const field of fields) {
+        if (field.type === 'file' || !field.label.trim()) continue
+        const answerType = typeMap[field.type] ?? 'text'
+        await client.query('INSERT INTO application_answers(preparation_id,question,concept,answer_type,options,required) VALUES ($1,$2,NULL,$3,$4::jsonb,$5)',
+          [preparationId, field.label.trim(), answerType, JSON.stringify([]), field.required])
+      }
+      return this.preparationView(client, preparationId)
+    })
+  }
   async formContext(slug: string) {
     this.id(slug)
     return transaction(this.pool, async client => {
