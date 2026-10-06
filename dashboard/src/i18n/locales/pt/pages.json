@@ -113,7 +113,10 @@
     "provenance_manual": "Introduzido manualmente em {{date}}.",
     "provenance_imported": "Importado de {{url}} em {{date}}{{edited}}.",
     "provenance_edited": ", depois editado",
-    "provenance_hint": "Alterar o texto marca-o como editado; o registo de origem não pode ser editado."
+    "provenance_hint": "Alterar o texto marca-o como editado; o registo de origem não pode ser editado.",
+    "apply_link": "Link de candidatura",
+    "save_apply_link": "Guardar link",
+    "apply_link_saved": "Link de candidatura guardado."
   },
   "messages": {
     "reusable_messages_copy_one_straight_from_its_card_or_open_it_to_read_it_in_full": "Mensagens reutilizáveis. Copia diretamente do cartão ou abre para ler na íntegra.",
@@ -400,8 +403,28 @@
     "source_label": "Origem: {{source}}",
     "confidence_label": "Confiança: {{confidence}}",
     "evidence": "{{kind}} (revisão {{revision}}) — {{label}}: {{answer}}",
-    "form_not_inspected_hint": "Formulário não verificado. A percentagem abrange apenas os itens aqui listados, não as perguntas que o formulário real possa fazer. A submissão automática não está disponível.",
+    "form_not_inspected_hint": "Inspecciona o formulário antes de submeter.",
     "answers_resolved": "Perguntas em aberto resolvidas a partir do perfil e da base de conhecimento.",
-    "unrestricted_answer_hint": "Sem restrições: esta resposta será reutilizada em todas as candidaturas."
+    "unrestricted_answer_hint": "Sem restrições: esta resposta será reutilizada em todas as candidaturas.",
+    "adapt_cv_for_ats": "Adaptar CV para ATS",
+    "adapting": "A adaptar...",
+    "cv_adapted": "CV adaptado para ATS e fixado como nova versão.",
+    "submit_application": "Submeter candidatura",
+    "apply_manually": "Aplicar manualmente",
+    "apply_automatically": "Aplicar automaticamente",
+    "define_apply_link": "Define o link de candidatura na descrição da vaga",
+    "inspecting": "A inspecionar o formulário...",
+    "auto_apply_requirements": "Requer o link de candidatura e pelo menos uma resposta aceite",
+    "form_inspection": "Formulário preenchido",
+    "form_screenshot": "Captura do formulário preenchido",
+    "detected_fields": "Campos detectados",
+    "no_fields_detected": "Nenhum campo detectado.",
+    "unlabelled_field": "Campo sem etiqueta",
+    "field_filled": "Preenchido",
+    "field_not_filled": "Por preencher",
+    "cannot_auto_fill": "O formulário não pôde ser preenchido por completo. Cancela e candidata-te manualmente.",
+    "confirm_and_submit": "Confirmar e Submeter",
+    "submitting": "A submeter...",
+    "application_submitted": "Candidatura submetida."
   }
 }

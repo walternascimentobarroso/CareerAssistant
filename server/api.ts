@@ -1,3 +1,6 @@
+import { FormAgent, cvPdf } from './form-agent.ts'
+import { submitForm } from './form-submitter.ts'
+import { getSession, closeSession } from './form-sessions.ts'
 import { savePersonalProfileSchema } from '../dashboard/src/domain/personalProfile.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
@@ -52,7 +55,7 @@ async function body(req: IncomingMessage) {
   }
   try { return JSON.parse(raw) as unknown } catch { throw new StoreError(400, 'Invalid JSON') }
 }
-export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJobPosting: JobPostingFetcher = createJobPostingFetcher()) {
+export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJobPosting: JobPostingFetcher = createJobPostingFetcher(), formAgent: Pick<FormAgent, 'inspect'> = new FormAgent(), renderCvPdf = cvPdf) {
   const ai = new Ai(store, fetcher)
   return async (req: IncomingMessage, res: ServerResponse) => {
     const send = (status: number, value: unknown) => {
@@ -83,6 +86,45 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
         if (req.method === 'PATCH' && id) return send(200, await store.patchKnowledge(z.uuid().parse(id), await body(req)))
         if (req.method === 'PUT' && id) return send(200, await store.saveKnowledge(z.uuid().parse(id), saveKnowledgeSchema.parse(await body(req))))
         if (req.method === 'DELETE' && id) return send(200, await store.deleteKnowledge(z.uuid().parse(id), revisionSchema.parse(await body(req))))
+      }
+      if (collection === 'jobs' && id && !action && req.method === 'PATCH') {
+        const input = z.strictObject({ apply_url: z.string().nullable() }).parse(await body(req))
+        return send(200, await store.saveJobApplyUrl(id, input.apply_url))
+      }
+      if (collection === 'applications' && id && action === 'preparation' && target === 'cancel-form' && segments.length === 5 && req.method === 'POST') {
+        const input = z.strictObject({ sessionId: z.uuid() }).parse(await body(req))
+        const session = getSession(input.sessionId)
+        if (!session.snapshot) throw new StoreError(409, 'Form session is not ready')
+        await store.assertFormSessionOwner(id, session.snapshot.applicationId)
+        if (session.state === 'submitting') throw new StoreError(409, 'Submission is already running')
+        await closeSession(input.sessionId)
+        return send(200, { ok: true })
+      }
+      if (collection === 'applications' && id && action === 'preparation' && target === 'inspect-form' && segments.length === 5 && req.method === 'POST') {
+        z.strictObject({ provider: provider.optional(), model: envValue.optional() }).parse(await body(req))
+        const context = await store.formContext(id)
+        const pdf = context.cvContent ? { name: 'cv.pdf', mimeType: 'application/pdf', buffer: await renderCvPdf(context.cvContent) } : undefined
+        const inspection = await formAgent.inspect(context.snapshot.applyUrl, context.answers, pdf)
+        try {
+          const session = getSession(inspection.sessionId)
+          session.snapshot = await store.markFormInspected(context.snapshot, inspection.fields.length > 0 && inspection.canAutoFill)
+          return send(200, inspection)
+        } catch (error) { await closeSession(inspection.sessionId); throw error }
+      }
+      if (collection === 'applications' && id && action === 'preparation' && target === 'submit-form' && segments.length === 5 && req.method === 'POST') {
+        const input = z.strictObject({ sessionId: z.uuid() }).parse(await body(req))
+        const session = getSession(input.sessionId)
+        if (!session.snapshot) throw new StoreError(409, 'Form session is not ready')
+        await store.recordFormSubmission(id, session.snapshot, input.sessionId, () => submitForm(input.sessionId))
+        await closeSession(input.sessionId)
+        return send(200, { ok: true })
+      }
+      if (collection === 'applications' && id && action === 'preparation' && target === 'adapt-cv' && segments.length === 5 && req.method === 'POST') {
+        const input = z.strictObject({ cvVersionId: z.uuid(), provider: provider.optional(), model: envValue.optional() }).parse(await body(req))
+        const context = await store.adaptationContext(id, input.cvVersionId)
+        const adapted = await ai.adaptCv({ cvContent: context.cvContent, jobDescription: context.jobDescription,
+          role: context.role, company: context.company, profile: context.profile, provider: input.provider, model: input.model })
+        return send(200, await store.saveAdaptedPreparationCv(context, adapted))
       }
       if (collection === 'applications' && id && action === 'preparation' && target === 'answers' && answerId && segments.length === 6 && req.method === 'PATCH') {
         return send(200, await store.patchApplicationPreparationAnswer(id, z.uuid().parse(answerId), await body(req)))

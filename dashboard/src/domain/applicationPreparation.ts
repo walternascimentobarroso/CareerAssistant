@@ -39,7 +39,7 @@ export type PreparationAnswer = Requirement & {
 export type Preparation = {
   id: string; applicationId: string; revision: string; country: string | null; language: string; cvRequired: boolean
   cv: { versionId: string; name: string; version: number } | null
-  /** No browser phase yet: nothing can confirm that the listed questions cover the real form. */
+  /** True after the browser inspected and filled the required form fields. */
   formInspected: boolean; answers: PreparationAnswer[]
 }
 

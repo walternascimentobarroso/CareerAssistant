@@ -1,3 +1,4 @@
+import type { FormSnapshot } from './form-sessions.ts'
 import { personalProfileSchema, savePersonalProfileSchema, type PersonalProfile, type PersonalProfileFields } from '../dashboard/src/domain/personalProfile.ts'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -138,7 +139,7 @@ export class PostgresStore {
       return this.application(slug,client)
     })
     this.id(slug)
-    const { rows } = await query.query(`SELECT a.*, j.company_id,j.title,j.contract_type,j.location,j.job_url,j.description_md,j.description_input_kind,j.description_captured_at,j.description_resolved_url,j.description_capture_method,j.description_edited_after_capture,j.row_version AS job_revision,c.name AS company
+    const { rows } = await query.query(`SELECT a.*, j.company_id,j.title,j.contract_type,j.location,j.job_url,j.apply_url,j.description_md,j.description_input_kind,j.description_captured_at,j.description_resolved_url,j.description_capture_method,j.description_edited_after_capture,j.row_version AS job_revision,c.name AS company
       FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
       WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`, [slug])
     if (!rows.length) throw new StoreError(404, 'Application not found')
@@ -156,7 +157,7 @@ export class PostgresStore {
     const selected = cvs.rows.find(c => c.state === 'selected') ?? cvs.rows.at(-1)
     const data = applicationSchema.parse({
       company: a.company, role: a.title, status: a.status, priority: optional(a.priority), type: optional(a.contract_type),
-      location: optional(a.location), job_url: optional(a.job_url), applied_at: optional(a.applied_on),
+      location: optional(a.location), job_url: optional(a.job_url), apply_url: optional(a.apply_url), applied_at: optional(a.applied_on),
       rate: a.currency === null ? undefined : { requested: optional(a.requested_amount), minimum: optional(a.minimum_amount), currency: a.currency, period: a.rate_period, vat: optional(a.vat), basis: optional(a.rate_basis) },
       contact: contact ? { name:contact.name, role: optional(contact.relationship_role ?? contact.role), email:optional(contact.email), phone:optional(contact.phone), linkedin:optional(contact.linkedin_url) } : undefined,
       next_action: task ? { type:task.type, description:task.description, date:optional(task.due_on) } : undefined,
@@ -193,8 +194,8 @@ export class PostgresStore {
     let company = (await client.query('SELECT id FROM companies WHERE name=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE',[data.company])).rows[0]
     if (!company) company = (await client.query('INSERT INTO companies(name) VALUES ($1) RETURNING id',[data.company])).rows[0]
     const description = jobDescriptionMd === undefined ? null : parseJobDescription(jobDescriptionMd)
-    const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,...descriptionColumns(description,jobDescriptionMd ?? null)])).rows[0]
+    const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,apply_url,${JOB_DESCRIPTION_COLUMNS})
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,[company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,data.apply_url ?? null,...descriptionColumns(description,jobDescriptionMd ?? null)])).rows[0]
     const base = slugify(`${data.company} ${data.role}`)
     if (!base) throw new StoreError(400,'Company and role need letters or digits')
     let slug = base
@@ -258,17 +259,20 @@ export class PostgresStore {
         await client.query('SELECT pg_advisory_xact_lock(87314002)')
         let company = (await client.query('SELECT id FROM companies WHERE name=$1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE',[data.company])).rows[0]
         if (!company) company = (await client.query('INSERT INTO companies(name) VALUES ($1) RETURNING id',[data.company])).rows[0]
-        const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
-          SELECT $2,$3,$4,$5,$6,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0]
+        const job = (await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,apply_url,${JOB_DESCRIPTION_COLUMNS})
+          SELECT $2,$3,$4,$5,$6,$7,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,company.id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,data.apply_url ?? null])).rows[0]
         a.job_id=job.id
-      } else if (!isDeepStrictEqual([data.role,data.type,data.location,data.job_url],[before.data.role,before.data.type,before.data.location,before.data.job_url])) {
+      } else if (!isDeepStrictEqual([data.role,data.type,data.location,data.job_url,data.apply_url],[before.data.role,before.data.type,before.data.location,before.data.job_url,before.data.apply_url])) {
         const count = await client.query('SELECT 1 FROM applications WHERE job_id=$1 AND id<>$2',[a.job_id,a.id])
         if (count.rowCount) {
-          a.job_id=(await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,${JOB_DESCRIPTION_COLUMNS})
-            SELECT company_id,$2,$3,$4,$5,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])).rows[0].id
-        } else await client.query('UPDATE jobs SET title=$2,contract_type=$3,location=$4,job_url=$5 WHERE id=$1',[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null])
+          a.job_id=(await client.query(`INSERT INTO jobs(company_id,title,contract_type,location,job_url,apply_url,${JOB_DESCRIPTION_COLUMNS})
+            SELECT company_id,$2,$3,$4,$5,$6,${JOB_DESCRIPTION_COLUMNS} FROM jobs WHERE id=$1 RETURNING id`,[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,data.apply_url ?? null])).rows[0].id
+        } else await client.query('UPDATE jobs SET title=$2,contract_type=$3,location=$4,job_url=$5,apply_url=$6 WHERE id=$1',[a.job_id,data.role,data.type ?? null,data.location ?? null,data.job_url ?? null,data.apply_url ?? null])
       }
       await client.query(`UPDATE applications SET job_id=$2,priority=$3,applied_on=$4,requested_amount=$5,minimum_amount=$6,currency=$7,rate_period=$8,vat=$9,rate_basis=$10 WHERE id=$1`,[a.id,a.job_id,data.priority ?? null,data.applied_at ?? null,data.rate?.requested ?? null,data.rate?.minimum ?? null,data.rate?.currency ?? null,data.rate?.period ?? null,data.rate?.vat ?? null,data.rate ? data.rate.basis ?? 'unknown' : null])
+      if (!isDeepStrictEqual([data.company,data.role,data.type,data.location,data.apply_url], [before.data.company,before.data.role,before.data.type,before.data.location,before.data.apply_url])) {
+        await client.query('UPDATE application_preparations SET form_inspected=false WHERE application_id=$1 AND deleted_at IS NULL', [a.id])
+      }
       if (!isDeepStrictEqual(data.contact,before.data.contact)) await this.replaceContact(client,a.id,data.contact)
       if (!isDeepStrictEqual(data.tags,before.data.tags)) await this.replaceTags(client,a.id,data.tags)
       if (!isDeepStrictEqual(data.next_action,before.data.next_action)) await this.replaceNextAction(client,a.id,data.next_action)
@@ -519,7 +523,7 @@ export class PostgresStore {
       LEFT JOIN cv_versions v ON v.id=p.cv_version_id LEFT JOIN cvs c ON c.id=v.cv_id WHERE p.id=$1`,[id])).rows[0]
     const answers=await client.query('SELECT * FROM application_answers WHERE preparation_id=$1 AND deleted_at IS NULL ORDER BY created_at,id',[id])
     return { preparation:{ id:p.id,applicationId:p.application_id,revision:String(p.row_version),country:p.country,language:p.language,cvRequired:p.cv_required,
-      cv:p.cv_version_id ? { versionId:p.cv_version_id,name:p.cv_name,version:p.version_number } : null,formInspected:false,answers:answers.rows.map(answerView) } }
+      cv:p.cv_version_id ? { versionId:p.cv_version_id,name:p.cv_name,version:p.version_number } : null,formInspected:p.form_inspected,answers:answers.rows.map(answerView) } }
   }
   async preparation(slug: string): Promise<{ preparation: Preparation | null }> {
     this.id(slug)
@@ -549,13 +553,13 @@ export class PostgresStore {
   }
   /** Every answer change is a new preparation revision. */
   private async revisedPreparation(client: PoolClient, id: string) {
-    await client.query('UPDATE application_preparations SET updated_at=updated_at WHERE id=$1',[id])
+    await client.query('UPDATE application_preparations SET updated_at=updated_at,form_inspected=false WHERE id=$1',[id])
     return this.preparationView(client,id)
   }
   async updatePreparation(id: string, input: { revision: string; country: string | null; language: string; cvRequired: boolean }) {
     return transaction(this.pool,async client => {
       const p=await this.lockedPreparation(client,id,input.revision)
-      await client.query('UPDATE application_preparations SET country=$2,language=$3,cv_required=$4 WHERE id=$1',[id,input.country,input.language,input.cvRequired])
+      await client.query('UPDATE application_preparations SET country=$2,language=$3,cv_required=$4,form_inspected=false WHERE id=$1',[id,input.country,input.language,input.cvRequired])
       if (p.country!==input.country || p.language!==input.language) {
         await client.query(`UPDATE application_answers SET approval='pending',approved_at=NULL,review_reason='The application context changed. Review this answer.'
           WHERE preparation_id=$1 AND deleted_at IS NULL AND source IN ('PROFILE','KNOWLEDGE_BASE')`,[id])
@@ -563,12 +567,135 @@ export class PostgresStore {
       return this.preparationView(client,id)
     })
   }
+  async saveJobApplyUrl(slug: string, applyUrl: string | null) {
+    this.id(slug)
+    return transaction(this.pool, async client => {
+      const job = (await client.query(`SELECT j.id FROM jobs j WHERE j.deleted_at IS NULL AND
+        (j.id::text=$1 OR EXISTS(SELECT 1 FROM applications a WHERE a.job_id=j.id AND a.slug=$1 AND a.deleted_at IS NULL))`, [slug])).rows[0]
+      if (!job) throw new StoreError(404, 'Job not found')
+      // Match the application-first lock order used by form submission.
+      await client.query('SELECT id FROM applications WHERE job_id=$1 ORDER BY id FOR UPDATE', [job.id])
+      const updated = (await client.query(`UPDATE jobs SET apply_url=$2 WHERE id=$1 AND deleted_at IS NULL
+        RETURNING id,apply_url,row_version`, [job.id, applyUrl])).rows[0]
+      if (!updated) throw new StoreError(404, 'Job not found')
+      await client.query(`UPDATE application_preparations SET form_inspected=false WHERE deleted_at IS NULL
+        AND application_id IN (SELECT id FROM applications WHERE job_id=$1)`, [job.id])
+      return { id: updated.id, apply_url: updated.apply_url, revision: String(updated.row_version) }
+    })
+  }
+  async assertFormSessionOwner(slug: string, applicationId: string) {
+    this.id(slug)
+    const result = await this.pool.query('SELECT id FROM applications WHERE id=$2 AND (slug=$1 OR id::text=$1)', [slug, applicationId])
+    if (!result.rowCount) throw new StoreError(409, 'Form session belongs to a different application')
+  }
+  async formContext(slug: string) {
+    this.id(slug)
+    return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      const row = (await client.query(`SELECT a.id AS application_id,a.row_version AS application_revision,
+        j.id AS job_id,j.row_version AS job_revision,j.apply_url,p.id AS preparation_id,p.row_version AS preparation_revision,
+        p.cv_version_id,p.cv_required,v.content_md
+        FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
+        JOIN application_preparations p ON p.application_id=a.id AND p.deleted_at IS NULL
+        LEFT JOIN cv_versions v ON v.id=p.cv_version_id AND v.deleted_at IS NULL
+        LEFT JOIN cvs cv ON cv.id=v.cv_id AND cv.deleted_at IS NULL
+        WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL
+        AND (p.cv_version_id IS NULL OR cv.id IS NOT NULL)`, [slug])).rows[0]
+      if (!row) throw new StoreError(404, 'Application preparation not found')
+      if (!row.apply_url) throw new StoreError(400, 'Save an application URL before inspecting the form')
+      if (row.cv_required && !row.cv_version_id) throw new StoreError(400, 'Select a CV before inspecting the form')
+      const view = await this.preparationView(client, row.preparation_id)
+      const snapshot: FormSnapshot = { applicationId: row.application_id, applicationRevision: String(row.application_revision),
+        preparationId: row.preparation_id, preparationRevision: String(row.preparation_revision),
+        jobId: row.job_id, jobRevision: String(row.job_revision), applyUrl: row.apply_url, cvVersionId: row.cv_version_id }
+      return { snapshot, answers: view.preparation.answers.filter(answer => answer.approval === 'accepted' && answer.answer), cvContent: row.content_md as string | null }
+    })
+  }
+  private async lockFormSnapshot(client: PoolClient, snapshot: FormSnapshot, slug = snapshot.applicationId) {
+    const application = await this.lockedApplication(client, slug, snapshot.applicationRevision)
+    if (application.id !== snapshot.applicationId || application.job_id !== snapshot.jobId) throw new StoreError(409, 'Form session belongs to a different application')
+    const preparation = await this.lockedPreparation(client, snapshot.preparationId, snapshot.preparationRevision)
+    if (preparation.application_id !== application.id || preparation.cv_version_id !== snapshot.cvVersionId) throw new StoreError(409, 'Selected CV changed. Inspect the form again.')
+    const job = (await client.query('SELECT row_version,apply_url FROM jobs WHERE id=$1 AND deleted_at IS NULL FOR SHARE', [snapshot.jobId])).rows[0]
+    if (!job || String(job.row_version) !== snapshot.jobRevision || job.apply_url !== snapshot.applyUrl) throw new StoreError(409, 'Application URL or job changed. Inspect the form again.')
+    return application
+  }
+  async markFormInspected(snapshot: FormSnapshot, inspected: boolean) {
+    return transaction(this.pool, async client => {
+      await this.lockFormSnapshot(client, snapshot)
+      const row = (await client.query('UPDATE application_preparations SET form_inspected=$2 WHERE id=$1 RETURNING row_version', [snapshot.preparationId, inspected])).rows[0]
+      return { ...snapshot, preparationRevision: String(row.row_version) }
+    })
+  }
+  async recordFormSubmission(slug: string, snapshot: FormSnapshot, sessionId: string, submit: () => Promise<void>) {
+    return transaction(this.pool, async client => {
+      const owner = await this.lockedApplication(client, slug)
+      if (owner.id !== snapshot.applicationId) throw new StoreError(409, 'Form session belongs to a different application')
+      const recorded = await client.query("SELECT id FROM application_events WHERE application_id=$1 AND type='applied' AND metadata->>'formSessionId'=$2", [owner.id, sessionId])
+      if (recorded.rowCount) return
+      const application = await this.lockFormSnapshot(client, snapshot, slug)
+      if (snapshot.cvVersionId) {
+        const source = await client.query(`SELECT v.id FROM cv_versions v JOIN cvs c ON c.id=v.cv_id WHERE v.id=$1
+          AND v.deleted_at IS NULL AND c.deleted_at IS NULL FOR SHARE OF v,c`, [snapshot.cvVersionId])
+        if (!source.rowCount) throw new StoreError(409, 'Selected CV is no longer available')
+      }
+      await submit()
+      const date = todayIsoDate()
+      let cvId: string | undefined
+      if (snapshot.cvVersionId) {
+        cvId = (await client.query("INSERT INTO application_cvs(application_id,cv_version_id,state,sent_on,channel) VALUES ($1,$2,'sent',$3,$4) RETURNING id", [application.id, snapshot.cvVersionId, date, snapshot.applyUrl])).rows[0].id
+      }
+      await client.query("UPDATE applications SET status='applied',applied_on=$2 WHERE id=$1", [application.id, date])
+      await this.appendEvent(client, application.id, { date, type: 'applied', description: 'Application submitted through the application form' },
+        { cvId, from: application.status, to: 'applied', metadata: { formSessionId: sessionId, channel: snapshot.applyUrl } })
+    })
+  }
+  async adaptationContext(slug: string, cvVersionId: string) {
+    this.id(slug)
+    return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      const row = (await client.query(`SELECT a.id AS application_id,a.slug,a.row_version AS application_revision,
+        j.id AS job_id,j.row_version AS job_revision,j.title AS role,j.description_md,c.name AS company,
+        p.id AS preparation_id,p.row_version AS preparation_revision
+        FROM applications a JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id
+        JOIN application_preparations p ON p.application_id=a.id AND p.deleted_at IS NULL
+        WHERE (a.slug=$1 OR a.id::text=$1) AND a.deleted_at IS NULL AND j.deleted_at IS NULL AND c.deleted_at IS NULL`, [slug])).rows[0]
+      if (!row) throw new StoreError(404, 'Application preparation not found')
+      if (!row.description_md?.trim()) throw new StoreError(400, 'A job description is required to adapt the CV')
+      const version = (await client.query(`SELECT v.content_md FROM cv_versions v JOIN cvs c ON c.id=v.cv_id
+        WHERE v.id=$1 AND v.deleted_at IS NULL AND c.deleted_at IS NULL`, [cvVersionId])).rows[0]
+      if (!version) throw new StoreError(404, 'CV version not found')
+      const { profile } = await this.personalProfile(client)
+      return { applicationId: row.application_id as string, applicationRevision: String(row.application_revision),
+        jobId: row.job_id as string, jobRevision: String(row.job_revision), preparationId: row.preparation_id as string,
+        preparationRevision: String(row.preparation_revision), cvVersionId, cvContent: version.content_md as string,
+        jobDescription: row.description_md as string, role: row.role as string, company: row.company as string, profile }
+    })
+  }
+  async saveAdaptedPreparationCv(context: Awaited<ReturnType<PostgresStore['adaptationContext']>>, content: string) {
+    if (!content.trim() || content.length > 1_000_000) throw new StoreError(400, 'Invalid adapted CV content')
+    return transaction(this.pool, async client => {
+      const application = await this.lockedApplication(client, context.applicationId, context.applicationRevision)
+      const preparation = await this.lockedPreparation(client, context.preparationId, context.preparationRevision)
+      if (application.job_id !== context.jobId || preparation.application_id !== application.id) throw new StoreError(409, 'Application changed during CV adaptation')
+      const job = (await client.query('SELECT row_version FROM jobs WHERE id=$1 AND deleted_at IS NULL FOR SHARE', [context.jobId])).rows[0]
+      if (!job || String(job.row_version) !== context.jobRevision) throw new StoreError(409, 'Job description changed during CV adaptation')
+      const source = await client.query(`SELECT v.id FROM cv_versions v JOIN cvs c ON c.id=v.cv_id
+        WHERE v.id=$1 AND v.deleted_at IS NULL AND c.deleted_at IS NULL FOR SHARE OF v,c`, [context.cvVersionId])
+      if (!source.rowCount) throw new StoreError(404, 'CV version not found')
+      const cv = await this.insertCv(client, `${application.slug}-ats-${randomUUID()}`, content, {
+        kind: 'tailored', derivedFromVersionId: context.cvVersionId, changeNote: `ATS: ${context.role} at ${context.company}`,
+      })
+      await client.query('UPDATE application_preparations SET cv_version_id=$2,form_inspected=false WHERE id=$1', [context.preparationId, cv.versionId])
+      return { versionId: cv.versionId, content: cv.content }
+    })
+  }
   async selectPreparationCv(id: string, input: { revision: string; cvVersionId: string }) {
     return transaction(this.pool,async client => {
       await this.lockedPreparation(client,id,input.revision)
       const version=await client.query('SELECT 1 FROM cv_versions v JOIN cvs c ON c.id=v.cv_id WHERE v.id=$1 AND v.deleted_at IS NULL AND c.deleted_at IS NULL',[input.cvVersionId])
       if (!version.rowCount) throw new StoreError(404,'CV version not found')
-      await client.query('UPDATE application_preparations SET cv_version_id=$2 WHERE id=$1',[id,input.cvVersionId])
+      await client.query('UPDATE application_preparations SET cv_version_id=$2,form_inspected=false WHERE id=$1',[id,input.cvVersionId])
       return this.preparationView(client,id)
     })
   }

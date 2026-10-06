@@ -30,8 +30,19 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
   const [dirty, setDirty] = useState(false)
   const { reload } = useApplications()
   const navigate = useNavigate()
-  useUnsavedGuard(dirty)
+  const [applyUrl, setApplyUrl] = useState(application.data.apply_url ?? '')
+  const [applyUrlMessage, setApplyUrlMessage] = useState('')
+  const applyUrlDirty = applyUrl.trim() !== (application.data.apply_url ?? '')
+  useUnsavedGuard(dirty || applyUrlDirty)
   const page = `/applications/${application.slug}`
+  async function saveApplyUrl() {
+    setBusy(true); setApplyUrlMessage('')
+    try {
+      await request(page, 'PATCH', { revision: application.revision, fields: { apply_url: applyUrl.trim() || null } })
+      await reload(); setApplyUrlMessage(t('job_description.apply_link_saved'))
+    } catch (e) { setApplyUrlMessage((e as Error).message) }
+    finally { setBusy(false) }
+  }
   const set = (changes: Partial<JobDescription>) => { setDescription({ ...description, ...changes }); setDirty(true) }
   async function save() {
     setBusy(true); setMessage('')
@@ -46,6 +57,13 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
   return <article className="detail">
     <Link to={page} className="back">← {application.data.company} — {application.data.role}</Link>
     <h1>{t('job_description.job_description')}</h1>
+    <form className="application-form" onSubmit={e => { e.preventDefault(); void saveApplyUrl() }}>
+      <div className="inline-form">
+        <label>{t('job_description.apply_link')}<input type="url" placeholder="https://..." value={applyUrl} disabled={busy} onChange={e => setApplyUrl(e.target.value)} /></label>
+        <button disabled={busy || !applyUrlDirty}>{t('job_description.save_apply_link')}</button>
+      </div>
+      <p role="status">{applyUrlMessage}</p>
+    </form>
     <form className="application-form" onSubmit={e => { e.preventDefault(); void save() }}>
       <div className="form-grid">
         <label>{t('job_description.source_link_to_the_posting')}<input type="url" value={description.source} disabled={busy} onChange={e => set({ source: e.target.value })} /></label>

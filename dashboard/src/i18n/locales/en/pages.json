@@ -113,7 +113,10 @@
     "provenance_manual": "Entered manually on {{date}}.",
     "provenance_imported": "Imported from {{url}} on {{date}}{{edited}}.",
     "provenance_edited": ", then edited",
-    "provenance_hint": "Changing the text marks it as edited; this record itself is not editable."
+    "provenance_hint": "Changing the text marks it as edited; this record itself is not editable.",
+    "apply_link": "Application link",
+    "save_apply_link": "Save link",
+    "apply_link_saved": "Application link saved."
   },
   "messages": {
     "reusable_messages_copy_one_straight_from_its_card_or_open_it_to_read_it_in_full": "Reusable messages. Copy one straight from its card, or open it to read it in full.",
@@ -400,8 +403,28 @@
     "source_label": "Source: {{source}}",
     "confidence_label": "Confidence: {{confidence}}",
     "evidence": "{{kind}} (revision {{revision}}) — {{label}}: {{answer}}",
-    "form_not_inspected_hint": "Form not inspected. The percentage covers only the items listed here, not the questions the real form may ask. Automatic submission is not available.",
+    "form_not_inspected_hint": "Inspect the form before submitting.",
     "answers_resolved": "Open questions resolved from the profile and knowledge base.",
-    "unrestricted_answer_hint": "No restriction: this answer will be reused in every application."
+    "unrestricted_answer_hint": "No restriction: this answer will be reused in every application.",
+    "adapt_cv_for_ats": "Adapt CV for ATS",
+    "adapting": "Adapting...",
+    "cv_adapted": "CV adapted for ATS and fixed as a new version.",
+    "submit_application": "Submit application",
+    "apply_manually": "Apply manually",
+    "apply_automatically": "Apply automatically",
+    "define_apply_link": "Set the application link in the job description",
+    "inspecting": "Inspecting the form...",
+    "auto_apply_requirements": "Requires the application link and at least one accepted answer",
+    "form_inspection": "Filled form",
+    "form_screenshot": "Screenshot of the filled form",
+    "detected_fields": "Detected fields",
+    "no_fields_detected": "No fields detected.",
+    "unlabelled_field": "Unlabelled field",
+    "field_filled": "Filled",
+    "field_not_filled": "Not filled",
+    "cannot_auto_fill": "The form could not be filled completely. Cancel and apply manually.",
+    "confirm_and_submit": "Confirm and submit",
+    "submitting": "Submitting...",
+    "application_submitted": "Application submitted."
   }
 }

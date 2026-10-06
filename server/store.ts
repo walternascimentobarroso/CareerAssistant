@@ -8,7 +8,7 @@ export class StoreError extends Error {
 }
 export const revision = (content: string) => createHash('sha256').update(content).digest('hex')
 // status, timeline and cv have their own operations so their side effects are never skipped.
-export const EDITABLE_FIELDS = ['company', 'role', 'priority', 'type', 'location', 'applied_at', 'job_url', 'rate', 'contact', 'next_action', 'tags'] as const
+export const EDITABLE_FIELDS = ['company', 'role', 'priority', 'type', 'location', 'applied_at', 'job_url', 'apply_url', 'rate', 'contact', 'next_action', 'tags'] as const
 export type ApplicationFields = Partial<Record<(typeof EDITABLE_FIELDS)[number], unknown>>
 
 /** Configuration and static files under the project root; domain data lives in PostgreSQL. */

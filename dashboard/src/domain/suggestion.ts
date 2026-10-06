@@ -15,6 +15,7 @@ export const suggestionSchema = z.object({
   role: text,
   location: text,
   job_url: text,
+  apply_url: text,
   type: z.enum(CONTRACT_TYPES).optional().catch(undefined),
   rate: z
     .object({

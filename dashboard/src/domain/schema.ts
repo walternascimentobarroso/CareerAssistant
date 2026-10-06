@@ -49,6 +49,7 @@ export const applicationSchema = z.strictObject({
   location: z.string().optional(),
   applied_at: isoDate.optional(),
   job_url: z.string().optional(),
+  apply_url: z.string().nullable().optional(),
   rate: rateSchema.optional(),
   contact: contactSchema.optional(),
   next_action: nextActionSchema.optional(),

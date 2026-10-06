@@ -49,7 +49,7 @@ async function request(method:string,path:string,body?:unknown) {
 }
 test('migrations are transactional and repeatable',integration,async () => {
   assert.deepEqual(await migrate(pool),[])
-  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'6')
+  assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'8')
 })
 test('exact decimals, duplicate opportunity slugs, status history and stale concurrency',integration,async () => {
   let a=await create()
@@ -431,4 +431,58 @@ test('singular preparation routes and partial patches preserve revisions and own
   assert.deepEqual((await request('GET', path)).value.preparation, p)
   await store.deleteApplication(application.slug, { revision: application.revision })
   assert.equal((await request('PATCH', answerPath, { revision: p.revision, approval: 'pending' })).status, 404)
+})
+
+
+test('ATS adaptation creates a derived editable CV atomically and rejects stale preparation state', integration, async () => {
+  const application = await create('ATS adaptation company')
+  const base = await store.saveCv('ats-base', '# Existing experience', null)
+  const preparation = (await store.startPreparation(application.slug)).preparation
+  const snapshot = await store.adaptationContext(application.slug, base.versionId)
+  assert.equal(snapshot.cvContent, '# Existing experience')
+  assert.equal(snapshot.company, 'ATS adaptation company')
+  const adapted = await store.saveAdaptedPreparationCv(snapshot, '# Reformulated experience')
+  const version = (await pool.query('SELECT * FROM cv_versions WHERE id=$1', [adapted.versionId])).rows[0]
+  assert.equal(version.derived_from_version_id, base.versionId)
+  assert.equal(version.change_note, 'ATS: Backend at ATS adaptation company')
+  assert.equal((await store.preparation(application.slug)).preparation?.cv?.versionId, adapted.versionId)
+  assert.equal((await store.cv('ats-base')).content, '# Existing experience')
+  const count = (await pool.query('SELECT count(*) FROM cv_versions')).rows[0].count
+  await assert.rejects(store.saveAdaptedPreparationCv(snapshot, '# Stale result'), { status: 409 })
+  assert.equal((await pool.query('SELECT count(*) FROM cv_versions')).rows[0].count, count)
+  const cv = (await pool.query('SELECT c.slug FROM cvs c JOIN cv_versions v ON v.cv_id=c.id WHERE v.id=$1', [adapted.versionId])).rows[0]
+  const current = await store.cv(cv.slug)
+  await store.saveCv(cv.slug, '# Reviewed CV', current.revision)
+  assert.equal((await store.preparation(application.slug)).preparation?.cv?.versionId, adapted.versionId)
+  assert.notEqual((await store.preparation(application.slug)).preparation?.revision, preparation.revision)
+  await assert.rejects(store.adaptationContext(application.slug, randomUUID()), { status: 404 })
+})
+
+
+test('form inspection revisions and submission records are atomic, owned and idempotent', integration, async () => {
+  let application = await create('Automated application')
+  application = await store.updateApplication(application.slug, { revision: application.revision, fields: { apply_url: 'https://company.test/apply' } })
+  const cv = await store.saveCv('automation-cv', '# CV', null)
+  let p = (await store.startPreparation(application.slug)).preparation
+  p = (await store.selectPreparationCv(p.id, { revision: p.revision, cvVersionId: cv.versionId })).preparation
+  const context = await store.formContext(application.slug)
+  assert.equal(context.snapshot.applyUrl, 'https://company.test/apply')
+  assert.equal(context.cvContent, '# CV')
+  const snapshot = await store.markFormInspected(context.snapshot, true)
+  assert.equal((await store.preparation(application.slug)).preparation?.formInspected, true)
+  let submitted = 0
+  const sessionId = randomUUID()
+  const other = await create('Different automated application')
+  await assert.rejects(store.recordFormSubmission(other.slug, snapshot, sessionId, async () => { submitted++ }), { status: 409 })
+  await assert.rejects(store.recordFormSubmission(application.slug, snapshot, sessionId, async () => { throw new Error('External failure') }), /External failure/)
+  assert.equal((await store.application(application.slug)).data.status, 'interested')
+  await store.recordFormSubmission(application.slug, snapshot, sessionId, async () => { submitted++ })
+  await store.recordFormSubmission(application.slug, snapshot, sessionId, async () => { submitted++ })
+  assert.equal(submitted, 1)
+  const updated = await store.application(application.slug)
+  assert.equal(updated.data.status, 'applied')
+  assert.equal(updated.cvHistory?.filter(cv => cv.state === 'sent').length, 1)
+  assert.equal(updated.data.timeline.filter(event => event.type === 'applied').length, 1)
+  const sent = (await pool.query("SELECT channel FROM application_cvs WHERE application_id=$1 AND state='sent'", [application.id])).rows[0]
+  assert.equal(sent.channel, 'https://company.test/apply')
 })

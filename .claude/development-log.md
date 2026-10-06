@@ -107,3 +107,49 @@
 ### D. Documentação Atualizada
 - Atualizado [`.claude/i18n-plan.md`](file:///Users/macbook/projets/CareerAssistant/.claude/i18n-plan.md) com a secção `## Estado actual`, detalhando o inventário de chaves, os ficheiros modificados no Lote 1 e Lote 2, e pontos de melhoria futura (nomenclatura semântica de chaves longas, pluralização formal i18next e formatação localizada de moedas/datas).
 
+
+---
+
+# Registo de Desenvolvimento — Fluxo Completo de Candidatura
+
+> Data: 2026-10-06 | Agentes: Codex Backend, Claude Frontend, Antigravity QA
+
+## O que foi implementado
+
+### Backend (Codex Backend — Codex/GPT-6.1-Sol)
+- **Migration 007**: `jobs.apply_url TEXT` — link directo de candidatura
+- **Migration 008**: `application_preparations.form_inspected BOOLEAN` — registo de inspecção Playwright
+- **`server/ai.ts`**: método `adaptCv()` — adapta CV para ATS via AI; `extract()` detecta `apply_url`
+- **`server/form-agent.ts`**: motor Playwright — abre browser headful, inspecciona campos, preenche respostas aprovadas, faz upload de CV PDF
+- **`server/form-sessions.ts`**: gestão de sessões Playwright com TTL de 10 minutos
+- **`server/form-submitter.ts`**: submissão final do formulário via sessão activa
+- **`server/api.ts`**: novas rotas:
+  - `POST /applications/:slug/preparation/adapt-cv` — cria cv_version ATS derivada
+  - `PATCH /api/jobs/:slug` — guarda apply_url
+  - `POST /applications/:slug/preparation/inspect-form` — inspecção Playwright
+  - `POST /applications/:slug/preparation/submit-form` — submissão final
+  - `POST /applications/:slug/preparation/cancel-form` — cancela sessão Playwright
+- **`dashboard/src/domain/suggestion.ts`**: `apply_url` opcional no schema de extracção
+
+### Frontend (Claude Frontend — Claude Code)
+- **`JobDescriptionPage.tsx`**: campo "Link de candidatura" (apply_url)
+- **`PreparationPage.tsx`**: botão "Adaptar CV para ATS" + secção "Submeter candidatura" com modal de confirmação Playwright
+- **`dashboard/src/domain/jobPosting.ts`**: `apply_url` no tipo Job
+- **Locales pt/en**: 24 chaves novas para as novas funcionalidades
+
+## Ficheiros novos
+- `server/db/migrations/007_apply_url.sql`
+- `server/db/migrations/008_form_inspected.sql`
+- `server/form-agent.ts`
+- `server/form-sessions.ts`
+- `server/form-submitter.ts`
+- `server/form-agent.test.ts`
+
+## Estado dos testes
+- `npm run build`: sem erros TypeScript
+- `npm test`: **54 testes passam**, 0 falhas (15 PostgreSQL ignorados sem TEST_DATABASE_URL)
+
+## Limitações conhecidas
+- Formulários com iframes ou campos não-standard requerem preenchimento manual
+- Browser Playwright fica aberto até TTL se aba for fechada sem cancelar
+- Testes Playwright correm com Chromium headful — não funcionam em ambiente CI headless sem configuração adicional

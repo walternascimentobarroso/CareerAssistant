@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { CONTRACT_TYPE_LABELS } from '../domain/constants'
 import { AnswerInput } from '../components/AnswerInput'
@@ -10,6 +10,7 @@ import { PROFILE_CONCEPTS, answerFits, preparationSummary, type Approval, type P
 
 type Loaded = { preparation: Preparation }
 type Context = { country: string; language: string; cvRequired: boolean }
+type FormInspection = { sessionId: string; fields: { selector: string; label: string; filled: boolean }[]; screenshot: string; canAutoFill: boolean }
 type Draft = {
   id: string | null; question: string; concept: string; type: AnswerType; options: string; required: boolean; answer: AnswerValue | null
   accept: boolean; remember: boolean; rememberConcept: string; category: string; scopes: ScopeType[]
@@ -45,6 +46,12 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [conflict, setConflict] = useState(false)
+  const [adapting, setAdapting] = useState(false)
+  const [adaptError, setAdaptError] = useState('')
+  const [inspecting, setInspecting] = useState(false)
+  const [inspection, setInspection] = useState<FormInspection | null>(null)
+  const [submitError, setSubmitError] = useState('')
+  const { reload } = useApplications()
   const contextDirty = !!preparation && !!context && JSON.stringify(context) !== JSON.stringify(contextOf(preparation))
   useUnsavedGuard(draft !== null || contextDirty)
 
@@ -76,6 +83,45 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     ...cvs.flatMap(cv => cv.versionId && cv.version !== undefined ? [{ versionId: cv.versionId, name: cv.name, version: cv.version }] : [])]
     .filter((cv, index, all) => all.findIndex(other => other.versionId === cv.versionId) === index)
   const selectedCvVersionId = cvVersionId || preparation.cv?.versionId || ''
+  // Only http(s) links are opened: the link may come from an AI reading of the posting.
+  const applyUrl = /^https?:\/\//i.test(application.data.apply_url ?? '') ? application.data.apply_url : null
+
+  async function adaptCv(sourceVersionId: string) {
+    setBusy(true); setAdapting(true); setAdaptError('')
+    try { await request(`/applications/${application.slug}/preparation/adapt-cv`, 'POST', { cvVersionId: sourceVersionId }) }
+    catch (e) { setAdaptError((e as Error).message); return }
+    finally { setAdapting(false); setBusy(false) }
+    setCvVersionId('')
+    await run(() => request<Loaded>(`/applications/${application.slug}/preparations`, 'POST', {}), t('preparation.cv_adapted'))
+  }
+  const canApplyAutomatically = !!applyUrl && preparation.answers.some(answer => answer.approval === 'accepted')
+  const formPath = `/applications/${application.slug}/preparation`
+
+  async function inspectForm() {
+    setBusy(true); setInspecting(true); setSubmitError('')
+    try {
+      const inspected = await request<FormInspection>(`${formPath}/inspect-form`, 'POST', {})
+      // The inspection changes the preparation revision on the server.
+      await load()
+      setInspection(inspected)
+    } catch (e) { setSubmitError((e as Error).message) }
+    finally { setInspecting(false); setBusy(false) }
+  }
+  async function submitForm(sessionId: string) {
+    setBusy(true); setSubmitError('')
+    try { await request(`${formPath}/submit-form`, 'POST', { sessionId }) }
+    catch (e) { setSubmitError((e as Error).message); return }
+    finally { setBusy(false) }
+    setInspection(null)
+    await reload().catch(() => {})
+    if (await load()) setMessage(t('preparation.application_submitted'))
+  }
+  async function cancelForm(sessionId: string) {
+    setInspection(null); setSubmitError('')
+    try { await request(`${formPath}/cancel-form`, 'POST', { sessionId }) }
+    // A session that already expired has nothing left to cancel.
+    catch (e) { if ((e as { status?: number }).status !== 404) setSubmitError((e as Error).message) }
+  }
 
   async function saveContext(current: Context) {
     const saved = await run(() => request<Loaded>(path, 'PUT', { country: current.country.trim() || null, language: current.language, cvRequired: current.cvRequired, revision }), t('preparation.context_saved'))
@@ -123,7 +169,9 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
         <label>{t('preparation.version_to_send')}<select value={selectedCvVersionId} disabled={busy} onChange={e => setCvVersionId(e.target.value)}><option value="">{t('preparation.select_a_version')}</option>
           {versions.map(cv => <option key={cv.versionId} value={cv.versionId}>{cv.name} v{cv.version}</option>)}</select></label>
         <button disabled={busy || !selectedCvVersionId} onClick={() => void run(() => request<Loaded>(`${path}/select-cv`, 'POST', { cvVersionId: selectedCvVersionId, revision }), t('preparation.cv_version_fixed_later_cv_edits_do_not_change_it'))}>{t('preparation.use_this_version')}</button>
+        {selectedCvVersionId && <button disabled={busy} onClick={() => void adaptCv(selectedCvVersionId)}>{adapting ? t('preparation.adapting') : t('preparation.adapt_cv_for_ats')}</button>}
       </div>
+      {adaptError && <p role="alert">{adaptError}</p>}
     </section>
 
     <section className="detail-section"><h2>{t('preparation.questions_and_requirements')}</h2>
@@ -176,5 +224,34 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
       </>}
       <div className="toolbar"><button>{busy ? t('saving', { ns: 'common' }) : t('save', { ns: 'common' })}</button><button type="button" onClick={() => { if (confirmDiscard(true)) setDraft(null) }}>{t('cancel', { ns: 'common' })}</button></div>
     </fieldset></form>}
+
+    <section className="detail-section"><h2>{t('preparation.submit_application')}</h2>
+      <div className="toolbar">
+        {applyUrl && <button onClick={() => window.open(applyUrl, '_blank', 'noopener,noreferrer')}>{t('preparation.apply_manually')}</button>}
+        <button disabled={busy || !canApplyAutomatically} title={canApplyAutomatically ? undefined : t('preparation.auto_apply_requirements')} onClick={() => void inspectForm()}>{inspecting ? t('preparation.inspecting') : t('preparation.apply_automatically')}</button>
+      </div>
+      {!applyUrl && <p className="muted"><Link to={`/applications/${application.slug}/job-description`}>{t('preparation.define_apply_link')}</Link></p>}
+      {!inspection && submitError && <p role="alert">{submitError}</p>}
+    </section>
+    {inspection && <FormInspectionDialog inspection={inspection} busy={busy} error={submitError} onConfirm={() => void submitForm(inspection.sessionId)} onCancel={() => void cancelForm(inspection.sessionId)} />}
   </article>
+}
+
+function FormInspectionDialog({ inspection, busy, error, onConfirm, onCancel }: { inspection: FormInspection; busy: boolean; error: string; onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useTranslation('pages')
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { dialog.current?.showModal() }, [])
+  return <dialog ref={dialog} className="message-dialog" style={{ overflow: 'auto' }} onCancel={e => { if (busy) e.preventDefault() }} onClose={onCancel}>
+    <h2>{t('preparation.form_inspection')}</h2>
+    <img src={`data:image/png;base64,${inspection.screenshot}`} alt={t('preparation.form_screenshot')} style={{ maxWidth: '100%' }} />
+    <h3>{t('preparation.detected_fields')}</h3>
+    {inspection.fields.length === 0 && <p className="muted">{t('preparation.no_fields_detected')}</p>}
+    <ul>{inspection.fields.map(field => <li key={field.selector}>{field.label || t('preparation.unlabelled_field')} — {field.filled ? t('preparation.field_filled') : t('preparation.field_not_filled')}</li>)}</ul>
+    {!inspection.canAutoFill && <p role="alert">{t('preparation.cannot_auto_fill')}</p>}
+    {error && <p role="alert">{error}</p>}
+    <div className="toolbar">
+      <button disabled={busy || !inspection.canAutoFill} onClick={onConfirm}>{busy ? t('preparation.submitting') : t('preparation.confirm_and_submit')}</button>
+      <button type="button" disabled={busy} onClick={onCancel}>{t('cancel', { ns: 'common' })}</button>
+    </div>
+  </dialog>
 }
