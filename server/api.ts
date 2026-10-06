@@ -147,6 +147,7 @@ export function api(store: PostgresStore, fetcher: typeof fetch = fetch, fetchJo
       if (collection === 'trash' && id && !action && req.method === 'DELETE') return send(200, await store.permanentlyDeleteApplication(id, deleteInput.parse(await body(req))))
       if (collection === 'applications' && id && req.method === 'POST') {
         if (action === 'restore') return send(200, await store.restoreApplication(id, deleteInput.parse(await body(req))))
+        if (action === 'record-submission') return send(200, await store.recordSubmission(id, z.strictObject({ date: isoDate, channel: z.string().optional(), cvVersionId: z.uuid().optional(), revision: hash }).parse(await body(req))))
         if (action === 'cv-send') return send(200, await store.sendCv(id, z.strictObject({ revision:hash, versionId:z.uuid(), date:isoDate, channel:z.string().optional() }).parse(await body(req))))
         if (action === 'cv-customize') return send(201, await store.customizeCv(id, z.strictObject({ revision:hash, content, sourceVersionId:z.uuid() }).parse(await body(req))))
         if (action === 'task-complete') return send(200, await store.completeTask(id, z.strictObject({ revision:hash, taskId:z.uuid() }).parse(await body(req))))

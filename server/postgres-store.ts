@@ -404,6 +404,25 @@ export class PostgresStore {
       return this.application(a.id,client)
     })
   }
+  async recordSubmission(slug: string, input: { date: string; channel?: string; cvVersionId?: string; revision: string }) {
+    isoDate.parse(input.date)
+    return transaction(this.pool, async client => {
+      const application = await this.lockedApplication(client, slug, input.revision)
+      if (application.status !== 'interested') throw new StoreError(409, 'This application has already left the submission flow')
+      let cvId: string | undefined
+      if (input.cvVersionId) {
+        const source = await client.query(`SELECT v.id FROM cv_versions v JOIN cvs c ON c.id=v.cv_id
+          WHERE v.id=$1 AND v.deleted_at IS NULL AND c.deleted_at IS NULL FOR SHARE OF v,c`, [input.cvVersionId])
+        if (!source.rowCount) throw new StoreError(404, 'CV version not found')
+        cvId = (await client.query(`INSERT INTO application_cvs(application_id,cv_version_id,state,sent_on,channel)
+          VALUES ($1,$2,'sent',$3,$4) RETURNING id`, [application.id, input.cvVersionId, input.date, input.channel ?? null])).rows[0].id
+      }
+      await client.query("UPDATE applications SET status='applied',applied_on=$2 WHERE id=$1", [application.id, input.date])
+      await this.appendEvent(client, application.id, { date: input.date, type: 'applied', description: 'Manual application submission recorded' },
+        { cvId, from: 'interested', to: 'applied', metadata: { channel: input.channel ?? null } })
+      return this.application(application.id, client)
+    })
+  }
   async sendCv(slug: string, input: { revision: string; versionId: string; date: string; channel?: string }) {
     return transaction(this.pool,async client => {
       const a=await this.lockedApplication(client,slug,input.revision)

@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { StepIndicator } from '../components/StepIndicator'
 import { useUnsavedGuard } from '../components/useUnsavedGuard'
-import { request, useApplications, type LiveApplication } from '../data/loadApplications'
+import { request, useApplications, usePreparation, type LiveApplication } from '../data/loadApplications'
+import { applicationFlowSteps, isInFlow } from '../domain/applicationFlow'
 import { todayIsoDate } from '../domain/format'
 import { JOB_DESCRIPTION_FILE, emptyJobDescription, linesToItems, listSections, parseJobDescription, serializeJobDescription, type JobDescription } from '../domain/jobDescription'
 
@@ -30,19 +32,10 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
   const [dirty, setDirty] = useState(false)
   const { reload } = useApplications()
   const navigate = useNavigate()
-  const [applyUrl, setApplyUrl] = useState(application.data.apply_url ?? '')
-  const [applyUrlMessage, setApplyUrlMessage] = useState('')
-  const applyUrlDirty = applyUrl.trim() !== (application.data.apply_url ?? '')
-  useUnsavedGuard(dirty || applyUrlDirty)
+  const preparation = usePreparation(application.slug)
+  useUnsavedGuard(dirty)
   const page = `/applications/${application.slug}`
-  async function saveApplyUrl() {
-    setBusy(true); setApplyUrlMessage('')
-    try {
-      await request(page, 'PATCH', { revision: application.revision, fields: { apply_url: applyUrl.trim() || null } })
-      await reload(); setApplyUrlMessage(t('job_description.apply_link_saved'))
-    } catch (e) { setApplyUrlMessage((e as Error).message) }
-    finally { setBusy(false) }
-  }
+  const inFlow = isInFlow(application)
   const set = (changes: Partial<JobDescription>) => { setDescription({ ...description, ...changes }); setDirty(true) }
   async function save() {
     setBusy(true); setMessage('')
@@ -50,20 +43,14 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
       const items = Object.fromEntries(listSections().map(section => [section, linesToItems(lists[section])]))
       const content = serializeJobDescription({ ...description, ...items })
       await request(`${page}/job-description`, 'PUT', { content, revision: opened === undefined ? null : application.jobRevision })
-      await reload(); setDirty(false); navigate(`${page}/doc/${JOB_DESCRIPTION_FILE}`)
+      await reload(); setDirty(false); navigate(inFlow ? `${page}/edit` : `${page}/doc/${JOB_DESCRIPTION_FILE}`)
     } catch (e) { setMessage((e as Error).message) }
     finally { setBusy(false) }
   }
   return <article className="detail">
+    {inFlow && <StepIndicator steps={applicationFlowSteps(application, preparation, 'posting', t).steps} />}
     <Link to={page} className="back">← {application.data.company} — {application.data.role}</Link>
     <h1>{t('job_description.job_description')}</h1>
-    <form className="application-form" onSubmit={e => { e.preventDefault(); void saveApplyUrl() }}>
-      <div className="inline-form">
-        <label>{t('job_description.apply_link')}<input type="url" placeholder="https://..." value={applyUrl} disabled={busy} onChange={e => setApplyUrl(e.target.value)} /></label>
-        <button disabled={busy || !applyUrlDirty}>{t('job_description.save_apply_link')}</button>
-      </div>
-      <p role="status">{applyUrlMessage}</p>
-    </form>
     <form className="application-form" onSubmit={e => { e.preventDefault(); void save() }}>
       <div className="form-grid">
         <label>{t('job_description.source_link_to_the_posting')}<input type="url" value={description.source} disabled={busy} onChange={e => set({ source: e.target.value })} /></label>
@@ -75,7 +62,12 @@ function JobDescriptionEditor({ application }: { application: LiveApplication })
         {listSections().map(section => <label key={section}>{t('job_description.list_label', { label: t(`job_description.sections.${({ keyRequirements: 'key_requirements', niceToHave: 'nice_to_have', technologies: 'technologies', openQuestions: 'open_questions' } as const)[section]}`) })}<textarea rows={6} value={lists[section]} disabled={busy} onChange={e => { setLists({ ...lists, [section]: e.target.value }); setDirty(true) }} /></label>)}
       </div>
       {(opened !== undefined && parseJobDescription(opened).other !== '') && <label>{t('job_description.other_content_found_in_the_file_kept_as_written')}<textarea rows={6} value={description.other} disabled={busy} onChange={e => set({ other: e.target.value })} /></label>}
-      <div className="toolbar"><button disabled={busy}>{busy ? t('saving', { ns: 'common' }) : t('job_description.save_job_description')}</button>{dirty && <span>{t('unsaved_changes', { ns: 'common' })}</span>}</div>
+      {!inFlow && <div className="toolbar"><button disabled={busy}>{busy ? t('saving', { ns: 'common' }) : t('job_description.save_job_description')}</button>{dirty && <span>{t('unsaved_changes', { ns: 'common' })}</span>}</div>}
+      {inFlow && <div className="flow-actions">
+        <Link to={page} className="button">{t('flow.back_to_overview')}</Link>
+        <span className="toolbar">{dirty && <span>{t('unsaved_changes', { ns: 'common' })}</span>}
+          {dirty ? <button className="primary" disabled={busy}>{busy ? t('saving', { ns: 'common' }) : t('flow.save_and_continue')}</button> : <Link to={`${page}/edit`} className="button primary">{t('flow.continue')}</Link>}</span>
+      </div>}
       <p role="status">{message}</p>
     </form>
   </article>

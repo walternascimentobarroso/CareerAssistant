@@ -1,16 +1,17 @@
 import { useTranslation } from 'react-i18next'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { CONTRACT_TYPE_LABELS } from '../domain/constants'
 import { AnswerInput } from '../components/AnswerInput'
+import { StepIndicator } from '../components/StepIndicator'
 import { confirmDiscard, useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type Cv, type LiveApplication } from '../data/loadApplications'
 import { ANSWER_TYPES, KNOWLEDGE_CATEGORIES, SCOPE_TYPES, formatAnswer, type AnswerType, type AnswerValue, type ScopeType } from '../domain/knowledge'
+import { applicationFlowSteps } from '../domain/applicationFlow'
 import { PROFILE_CONCEPTS, answerFits, preparationSummary, type Approval, type Preparation, type PreparationAnswer } from '../domain/applicationPreparation'
 
 type Loaded = { preparation: Preparation }
 type Context = { country: string; language: string; cvRequired: boolean }
-type FormInspection = { sessionId: string; fields: { selector: string; label: string; filled: boolean }[]; screenshot: string; canAutoFill: boolean }
 type Draft = {
   id: string | null; question: string; concept: string; type: AnswerType; options: string; required: boolean; answer: AnswerValue | null
   accept: boolean; remember: boolean; rememberConcept: string; category: string; scopes: ScopeType[]
@@ -48,10 +49,6 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
   const [conflict, setConflict] = useState(false)
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState('')
-  const [inspecting, setInspecting] = useState(false)
-  const [inspection, setInspection] = useState<FormInspection | null>(null)
-  const [submitError, setSubmitError] = useState('')
-  const { reload } = useApplications()
   const contextDirty = !!preparation && !!context && JSON.stringify(context) !== JSON.stringify(contextOf(preparation))
   useUnsavedGuard(draft !== null || contextDirty)
 
@@ -83,8 +80,8 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     ...cvs.flatMap(cv => cv.versionId && cv.version !== undefined ? [{ versionId: cv.versionId, name: cv.name, version: cv.version }] : [])]
     .filter((cv, index, all) => all.findIndex(other => other.versionId === cv.versionId) === index)
   const selectedCvVersionId = cvVersionId || preparation.cv?.versionId || ''
-  // Only http(s) links are opened: the link may come from an AI reading of the posting.
-  const applyUrl = /^https?:\/\//i.test(application.data.apply_url ?? '') ? application.data.apply_url : null
+  const { steps } = applicationFlowSteps(application, preparation, 'preparation', t)
+  const stepDone = summary.total > 0 && summary.accepted === summary.total
 
   async function adaptCv(sourceVersionId: string) {
     setBusy(true); setAdapting(true); setAdaptError('')
@@ -93,34 +90,6 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     finally { setAdapting(false); setBusy(false) }
     setCvVersionId('')
     await run(() => request<Loaded>(`/applications/${application.slug}/preparations`, 'POST', {}), t('preparation.cv_adapted'))
-  }
-  const canApplyAutomatically = !!applyUrl && preparation.answers.some(answer => answer.approval === 'accepted')
-  const formPath = `/applications/${application.slug}/preparation`
-
-  async function inspectForm() {
-    setBusy(true); setInspecting(true); setSubmitError('')
-    try {
-      const inspected = await request<FormInspection>(`${formPath}/inspect-form`, 'POST', {})
-      // The inspection changes the preparation revision on the server.
-      await load()
-      setInspection(inspected)
-    } catch (e) { setSubmitError((e as Error).message) }
-    finally { setInspecting(false); setBusy(false) }
-  }
-  async function submitForm(sessionId: string) {
-    setBusy(true); setSubmitError('')
-    try { await request(`${formPath}/submit-form`, 'POST', { sessionId }) }
-    catch (e) { setSubmitError((e as Error).message); return }
-    finally { setBusy(false) }
-    setInspection(null)
-    await reload().catch(() => {})
-    if (await load()) setMessage(t('preparation.application_submitted'))
-  }
-  async function cancelForm(sessionId: string) {
-    setInspection(null); setSubmitError('')
-    try { await request(`${formPath}/cancel-form`, 'POST', { sessionId }) }
-    // A session that already expired has nothing left to cancel.
-    catch (e) { if ((e as { status?: number }).status !== 404) setSubmitError((e as Error).message) }
   }
 
   async function saveContext(current: Context) {
@@ -140,67 +109,15 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     if (window.confirm(t('preparation.confirm_remove', { question: answer.question }))) void run(() => request<Loaded>(`${path}/answers/${answer.id}`, 'DELETE', { revision }))
   }
 
-  return <article className="detail">
-    <Link to={`/applications/${application.slug}`} className="back">← {application.data.company}</Link>
-    <header><h1>{t('preparation.prepare_application')}</h1><p className="detail-role">{application.data.company} · {application.data.role}</p></header>
-    <p role="status">{message}</p>
-    {conflict && <button disabled={busy} onClick={() => void load()}>{t('load_current_version', { ns: 'common' })}</button>}
-
-    <section className="detail-section"><h2>{t('preparation.summary')}</h2>
-      <p><span className="badge status">{t(`preparation.labels.status.${summary.status.toLowerCase()}`)}</span></p>
-      {summary.completeness === null ? <p>{t('preparation.no_required_items_listed_yet')}</p>
-        : <p>{t('preparation.completeness', { accepted: summary.accepted, total: summary.total, percentage: summary.completeness, pending: summary.pending, missing: summary.missing })}</p>}
-      <p>{t('preparation.cv_summary', { version: preparation.cv ? `${preparation.cv.name} v${preparation.cv.version}` : preparation.cvRequired ? t('preparation.not_selected') : t('preparation.not_required') })}</p>
-      {!preparation.formInspected && <p className="muted">{t('preparation.form_not_inspected_hint')}</p>}
-    </section>
-
-    <form className="application-form" onSubmit={e => { e.preventDefault(); void saveContext(context) }}><fieldset disabled={busy}><legend>{t('preparation.application_context')}</legend>
-      <div className="form-grid">
-        <label>{t('preparation.job_country_iso_code_e_g_de')}<input value={context.country} onChange={e => setContext({ ...context, country: e.target.value })} /></label>
-        <label>{t('preparation.form_language_e_g_en')}<input value={context.language} onChange={e => setContext({ ...context, language: e.target.value })} /></label>
-      </div>
-      <label><input type="checkbox" checked={context.cvRequired} onChange={e => setContext({ ...context, cvRequired: e.target.checked })} />{t('preparation.a_cv_is_required')}</label>
-      <p className="muted">{t('preparation.context_hint', { location: application.data.location ?? t('preparation.unknown'), contract: application.data.type ? t(CONTRACT_TYPE_LABELS[application.data.type], { ns: 'status' }) : t('preparation.unknown') })}</p>
-      <button disabled={!contextDirty}>{t('preparation.save_context')}</button>
-    </fieldset></form>
-
-    <section className="detail-section"><h2>{t('preparation.cv_version')}</h2>
-      <div className="inline-form">
-        <label>{t('preparation.version_to_send')}<select value={selectedCvVersionId} disabled={busy} onChange={e => setCvVersionId(e.target.value)}><option value="">{t('preparation.select_a_version')}</option>
-          {versions.map(cv => <option key={cv.versionId} value={cv.versionId}>{cv.name} v{cv.version}</option>)}</select></label>
-        <button disabled={busy || !selectedCvVersionId} onClick={() => void run(() => request<Loaded>(`${path}/select-cv`, 'POST', { cvVersionId: selectedCvVersionId, revision }), t('preparation.cv_version_fixed_later_cv_edits_do_not_change_it'))}>{t('preparation.use_this_version')}</button>
-        {selectedCvVersionId && <button disabled={busy} onClick={() => void adaptCv(selectedCvVersionId)}>{adapting ? t('preparation.adapting') : t('preparation.adapt_cv_for_ats')}</button>}
-      </div>
-      {adaptError && <p role="alert">{adaptError}</p>}
-    </section>
-
-    <section className="detail-section"><h2>{t('preparation.questions_and_requirements')}</h2>
-      <div className="toolbar">
-        <button disabled={busy || draft !== null} onClick={() => setDraft(emptyDraft)}>{t('preparation.add_question')}</button>
-        <button disabled={busy || draft !== null} onClick={() => void run(() => request<Loaded>(`${path}/resolve`, 'POST', { revision }), t('preparation.answers_resolved'))}>{t('preparation.resolve_answers')}</button>
-      </div>
-      {preparation.answers.length === 0 && <p className="muted">{t('preparation.no_questions_yet_add_the_ones_you_know_the_form_asks')}</p>}
-      {preparation.answers.map(answer => draft?.id === answer.id ? null : <div className="note-form" key={answer.id}>
-        <p><strong>{answer.question}</strong></p>
-        <div className="badges">
-          <span className="badge">{answer.required ? t('preparation.required') : t('preparation.optional')}</span><span className="badge">{t(`preparation.labels.answer_type.${answer.type}`)}</span>
-          <span className="badge">{t(`preparation.labels.approval.${answer.approval}`)}</span><span className="badge">{t('preparation.source_label', { source: t(`preparation.labels.source.${answer.source.toLowerCase()}`) })}</span>
-          <span className="badge">{t('preparation.confidence_label', { confidence: t(`preparation.labels.confidence.${answer.confidence.toLowerCase()}`) })}</span>
-        </div>
-        <p>{displayAnswer(answer.answer)}</p>
-        {answer.reviewReason && <p role="alert">{answer.reviewReason}</p>}
-        {answer.evidence?.sources.map(source => <p className="muted" key={source.kind + source.id}>{t('preparation.evidence', { kind: t(`preparation.labels.source.${source.kind.toLowerCase()}`), revision: source.revision, label: source.label, answer: displayAnswer(source.answer) })}
-          {!answer.answer && answerFits(answer, source.answer) && <> <button disabled={busy} onClick={() => void review(answer, 'accepted', source.answer)}>{t('preparation.use_this_answer')}</button></>}</p>)}
-        <div className="toolbar">
-          {answer.answer && answer.approval !== 'accepted' && <button disabled={busy} onClick={() => void review(answer, 'accepted')}>{t('preparation.accept')}</button>}
-          {answer.answer && answer.approval !== 'rejected' && <button disabled={busy} onClick={() => void review(answer, 'rejected')}>{t('preparation.reject')}</button>}
-          <button disabled={busy || draft !== null} onClick={() => setDraft(draftFrom(answer))}>{t('edit', { ns: 'common' })}</button>
-          <button disabled={busy} onClick={() => remove(answer)}>{t('remove', { ns: 'common' })}</button>
-        </div>
-      </div>)}
-    </section>
-
-    {draft && <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void saveDraft(draft) }}><fieldset disabled={busy}><legend>{draft.id ? t('preparation.edit_question') : t('preparation.new_question')}</legend>
+  const fixedCv = preparation.cv ? `${preparation.cv.name} v${preparation.cv.version}` : ''
+  const requiredAnswers = preparation.answers.filter(answer => answer.required)
+  const answers = {
+    total: requiredAnswers.length,
+    accepted: requiredAnswers.filter(answer => answer.answer && answer.approval === 'accepted').length,
+    missing: requiredAnswers.filter(answer => !answer.answer || answer.approval === 'rejected').length,
+    pending: requiredAnswers.filter(answer => answer.answer && answer.approval === 'pending').length,
+  }
+  const draftForm = draft && <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void saveDraft(draft) }}><fieldset disabled={busy}><legend>{draft.id ? t('preparation.edit_question') : t('preparation.new_question')}</legend>
       <label>{t('preparation.question')}<input value={draft.question} onChange={e => set({ question: e.target.value })} /></label>
       <div className="form-grid">
         <label>{t('preparation.concept_optional_otherwise_matched_by_wording')}<input list="known-concepts" value={draft.concept} onChange={e => set({ concept: e.target.value })} /></label>
@@ -223,35 +140,81 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
         </fieldset>}
       </>}
       <div className="toolbar"><button>{busy ? t('saving', { ns: 'common' }) : t('save', { ns: 'common' })}</button><button type="button" onClick={() => { if (confirmDiscard(true)) setDraft(null) }}>{t('cancel', { ns: 'common' })}</button></div>
-    </fieldset></form>}
+    </fieldset></form>
 
-    <section className="detail-section"><h2>{t('preparation.submit_application')}</h2>
-      <div className="toolbar">
-        {applyUrl && <button onClick={() => window.open(applyUrl, '_blank', 'noopener,noreferrer')}>{t('preparation.apply_manually')}</button>}
-        <button disabled={busy || !canApplyAutomatically} title={canApplyAutomatically ? undefined : t('preparation.auto_apply_requirements')} onClick={() => void inspectForm()}>{inspecting ? t('preparation.inspecting') : t('preparation.apply_automatically')}</button>
-      </div>
-      {!applyUrl && <p className="muted"><Link to={`/applications/${application.slug}/job-description`}>{t('preparation.define_apply_link')}</Link></p>}
-      {!inspection && submitError && <p role="alert">{submitError}</p>}
+  return <article className="detail">
+    <StepIndicator steps={steps} />
+    <Link to={`/applications/${application.slug}`} className="back">← {application.data.company}</Link>
+    <header><h1>{t('preparation.prepare_application')}</h1><p className="detail-role">{application.data.company} · {application.data.role}</p></header>
+    <p role="status">{message}</p>
+    {conflict && <button disabled={busy} onClick={() => void load()}>{t('load_current_version', { ns: 'common' })}</button>}
+
+    <section className="detail-section"><h2>{t('preparation.whats_missing')}</h2>
+      <ul className="checklist">
+        <li data-done={!!preparation.cv || !preparation.cvRequired}>{preparation.cv ? t('preparation.check_cv_fixed', { version: fixedCv }) : preparation.cvRequired ? t('preparation.check_cv_none') : t('preparation.check_cv_not_required')}</li>
+        <li data-done={answers.total > 0 && answers.accepted === answers.total}>{answers.total === 0 ? t('preparation.check_answers_none')
+          : answers.accepted === answers.total ? t('preparation.check_answers_done', { total: answers.total }) : t('preparation.check_answers_progress', answers)}</li>
+      </ul>
+      <p><span className="badge status">{t(`preparation.labels.status.${summary.status.toLowerCase()}`)}</span></p>
     </section>
-    {inspection && <FormInspectionDialog inspection={inspection} busy={busy} error={submitError} onConfirm={() => void submitForm(inspection.sessionId)} onCancel={() => void cancelForm(inspection.sessionId)} />}
-  </article>
-}
 
-function FormInspectionDialog({ inspection, busy, error, onConfirm, onCancel }: { inspection: FormInspection; busy: boolean; error: string; onConfirm: () => void; onCancel: () => void }) {
-  const { t } = useTranslation('pages')
-  const dialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => { dialog.current?.showModal() }, [])
-  return <dialog ref={dialog} className="message-dialog" style={{ overflow: 'auto' }} onCancel={e => { if (busy) e.preventDefault() }} onClose={onCancel}>
-    <h2>{t('preparation.form_inspection')}</h2>
-    <img src={`data:image/png;base64,${inspection.screenshot}`} alt={t('preparation.form_screenshot')} style={{ maxWidth: '100%' }} />
-    <h3>{t('preparation.detected_fields')}</h3>
-    {inspection.fields.length === 0 && <p className="muted">{t('preparation.no_fields_detected')}</p>}
-    <ul>{inspection.fields.map(field => <li key={field.selector}>{field.label || t('preparation.unlabelled_field')} — {field.filled ? t('preparation.field_filled') : t('preparation.field_not_filled')}</li>)}</ul>
-    {!inspection.canAutoFill && <p role="alert">{t('preparation.cannot_auto_fill')}</p>}
-    {error && <p role="alert">{error}</p>}
-    <div className="toolbar">
-      <button disabled={busy || !inspection.canAutoFill} onClick={onConfirm}>{busy ? t('preparation.submitting') : t('preparation.confirm_and_submit')}</button>
-      <button type="button" disabled={busy} onClick={onCancel}>{t('cancel', { ns: 'common' })}</button>
+    <section className="detail-section"><h2>{t('preparation.cv_section')}</h2>
+      <p>{preparation.cv ? t('preparation.cv_fixed', { version: fixedCv }) : t('preparation.cv_not_fixed')}</p>
+      <p className="muted">{t('preparation.cv_actions_hint')}</p>
+      <div className="inline-form">
+        <label>{t('preparation.version_to_send')}<select value={selectedCvVersionId} disabled={busy} onChange={e => setCvVersionId(e.target.value)}><option value="">{t('preparation.select_a_version')}</option>
+          {versions.map(cv => <option key={cv.versionId} value={cv.versionId}>{cv.name} v{cv.version}</option>)}</select></label>
+        <button disabled={busy || !selectedCvVersionId} onClick={() => void run(() => request<Loaded>(`${path}/select-cv`, 'POST', { cvVersionId: selectedCvVersionId, revision }), t('preparation.cv_version_fixed_later_cv_edits_do_not_change_it'))}>{t('preparation.use_this_version')}</button>
+        <button disabled={busy || !selectedCvVersionId} onClick={() => void adaptCv(selectedCvVersionId)}>{adapting ? t('preparation.adapting') : t('preparation.adapt_cv_for_ats')}</button>
+      </div>
+      {adaptError && <p role="alert">{adaptError}</p>}
+    </section>
+
+    <section className="detail-section"><h2>{t('preparation.questions_section')}</h2>
+      <div className="toolbar">
+        <button disabled={busy || draft !== null} onClick={() => setDraft(emptyDraft)}>{t('preparation.add_question')}</button>
+        <button disabled={busy || draft !== null} onClick={() => void run(() => request<Loaded>(`${path}/resolve`, 'POST', { revision }), t('preparation.answers_resolved'))}>{t('preparation.resolve_answers')}</button>
+        <span className="muted">{t('preparation.resolve_hint')}</span>
+      </div>
+      {draft?.id === null && draftForm}
+      {preparation.answers.length === 0 && <p className="muted">{t('preparation.no_questions_yet_add_the_ones_you_know_the_form_asks')}</p>}
+      {preparation.answers.map(answer => draft?.id === answer.id ? <div key={answer.id}>{draftForm}</div> : <div className="note-form" key={answer.id}>
+        <p><strong>{answer.question}</strong></p>
+        <div className="badges">
+          <span className="badge">{answer.required ? t('preparation.required') : t('preparation.optional')}</span>
+          <span className="badge">{t(`preparation.labels.approval.${answer.approval}`)}</span>
+        </div>
+        <p>{displayAnswer(answer.answer)}</p>
+        <p className="muted">{t('preparation.answer_meta', { type: t(`preparation.labels.answer_type.${answer.type}`), source: t(`preparation.labels.source.${answer.source.toLowerCase()}`), confidence: t(`preparation.labels.confidence.${answer.confidence.toLowerCase()}`) })}</p>
+        {answer.reviewReason && <p role="alert">{answer.reviewReason}</p>}
+        {answer.evidence?.sources.map(source => <p className="muted" key={source.kind + source.id}>{t('preparation.evidence', { kind: t(`preparation.labels.source.${source.kind.toLowerCase()}`), revision: source.revision, label: source.label, answer: displayAnswer(source.answer) })}
+          {!answer.answer && answerFits(answer, source.answer) && <> <button disabled={busy} onClick={() => void review(answer, 'accepted', source.answer)}>{t('preparation.use_this_answer')}</button></>}</p>)}
+        <div className="toolbar">
+          {answer.answer && answer.approval !== 'accepted' && <button disabled={busy} onClick={() => void review(answer, 'accepted')}>{t('preparation.accept')}</button>}
+          {answer.answer && answer.approval !== 'rejected' && <button disabled={busy} onClick={() => void review(answer, 'rejected')}>{t('preparation.reject')}</button>}
+          <button disabled={busy || draft !== null} onClick={() => setDraft(draftFrom(answer))}>{t('edit', { ns: 'common' })}</button>
+          <button disabled={busy} onClick={() => remove(answer)}>{t('remove', { ns: 'common' })}</button>
+        </div>
+      </div>)}
+    </section>
+
+    <details open={contextDirty}>
+      <summary>{t('preparation.context_summary', { country: preparation.country ?? t('preparation.unknown'), language: preparation.language, cv: preparation.cvRequired ? t('preparation.context_cv_required') : t('preparation.context_cv_optional') })}</summary>
+      <form className="application-form" onSubmit={e => { e.preventDefault(); void saveContext(context) }}><fieldset disabled={busy}><legend>{t('preparation.application_context')}</legend>
+        <div className="form-grid">
+          <label>{t('preparation.job_country_iso_code_e_g_de')}<input value={context.country} onChange={e => setContext({ ...context, country: e.target.value })} /></label>
+          <label>{t('preparation.form_language_e_g_en')}<input value={context.language} onChange={e => setContext({ ...context, language: e.target.value })} /></label>
+        </div>
+        <label><input type="checkbox" checked={context.cvRequired} onChange={e => setContext({ ...context, cvRequired: e.target.checked })} />{t('preparation.a_cv_is_required')}</label>
+        <p className="muted">{t('preparation.context_hint', { location: application.data.location ?? t('preparation.unknown'), contract: application.data.type ? t(CONTRACT_TYPE_LABELS[application.data.type], { ns: 'status' }) : t('preparation.unknown') })}</p>
+        <button disabled={!contextDirty}>{t('preparation.save_context')}</button>
+      </fieldset></form>
+    </details>
+
+    {!stepDone && <p className="flow-note">{t('preparation.incomplete_note')}</p>}
+    <div className="flow-actions">
+      <Link to={`/applications/${application.slug}/edit`} className="button">{t('flow.back_to_details')}</Link>
+      {draft || busy ? <button className="primary" disabled>{t('preparation.continue_to_submit')}</button> : <Link to={`/applications/${application.slug}/submit`} className="button primary">{t('preparation.continue_to_submit')}</Link>}
     </div>
-  </dialog>
+  </article>
 }

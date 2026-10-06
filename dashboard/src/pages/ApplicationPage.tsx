@@ -10,7 +10,9 @@ import Markdown from 'react-markdown'
 import { Link, useParams } from 'react-router'
 import { Badges } from '../components/Badges'
 import { NextActionBox } from '../components/NextActionBox'
-import { useApplications } from '../data/loadApplications'
+import { StepIndicator } from '../components/StepIndicator'
+import { useApplications, usePreparation, type LiveApplication } from '../data/loadApplications'
+import { applicationFlowSteps, isInFlow } from '../domain/applicationFlow'
 import type { Application } from '../domain/applications'
 import { JOB_DESCRIPTION_FILE } from '../domain/jobDescription'
 import { STATUS_LABELS } from '../domain/constants'
@@ -26,12 +28,21 @@ export function ApplicationPage() {
   const { findApplication } = useApplications()
   const application = findApplication(useParams().slug)
   if (!application) return <p className="muted">{t('application_not_found', { ns: 'common' })}</p>
+  return <ApplicationOverview key={application.slug} application={application} />
+}
 
+function ApplicationOverview({ application }: { application: LiveApplication }) {
+  const { t } = useTranslation('pages')
+  const preparation = usePreparation(application.slug)
   const { data, notes } = application
+  const inFlow = isInFlow(application)
+  const { steps, nextStep } = applicationFlowSteps(application, preparation, null, t)
+  const next = steps.find(step => step.id === nextStep)
   const timeline = [...data.timeline].sort((a, b) => a.date.localeCompare(b.date))
 
   return (
     <article className="detail">
+      {inFlow && <StepIndicator steps={steps} />}
       <Link to="/" className="back">
         {t('back_to_board', { ns: 'common' })}
       </Link>
@@ -49,9 +60,19 @@ export function ApplicationPage() {
             </a>
           )}
           <Link to={`/applications/${application.slug}/edit`}>{t('application.edit')}</Link>
-          <Link to={`/applications/${application.slug}/preparation`}>{t('application.prepare')}</Link>
+          {!inFlow && <Link to={`/applications/${application.slug}/preparation`}>{t('application.view_preparation')}</Link>}
         </div>
       </header>
+
+      {inFlow && next?.to && (
+        <Section title={t('flow.next.title')}>
+          <div className="next-action">
+            <p><strong>{t(`flow.next.${next.id}.title`)}</strong></p>
+            <p className="next-action-description">{t(`flow.next.${next.id}.text`)}</p>
+            <p><Link to={next.to} className="button primary">{t(`flow.next.${next.id}.action`)}</Link></p>
+          </div>
+        </Section>
+      )}
 
       {data.next_action && (
         <Section title={t('application.next_action')}>

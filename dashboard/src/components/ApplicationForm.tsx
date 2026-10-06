@@ -4,7 +4,7 @@ import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, CURRENCIES, PRIORITIES, PRIORITY_
 import { currencyLabel } from '../domain/format'
 import type { ApplicationFormValues, FieldErrors } from '../domain/applicationForm'
 
-type TextKey = { [K in keyof ApplicationFormValues]: ApplicationFormValues[K] extends string ? K : never }[keyof ApplicationFormValues]
+type TextKey = { [K in keyof ApplicationFormValues]-?: NonNullable<ApplicationFormValues[K]> extends string ? K : never }[keyof ApplicationFormValues]
 type Props = { value: ApplicationFormValues; errors: FieldErrors; disabled: boolean; onChange: (value: ApplicationFormValues) => void; suggested?: ReadonlySet<keyof ApplicationFormValues> }
 
 export function ApplicationForm({ value, errors, disabled, onChange, suggested }: Props) {
@@ -12,12 +12,12 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
   const set = (changes: Partial<ApplicationFormValues>) => onChange({ ...value, ...changes })
   const input = (key: TextKey, label: string, path: string, attributes: InputHTMLAttributes<HTMLInputElement> = {}) => (
     <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
-      <input value={value[key]} disabled={disabled} aria-invalid={path in errors} onChange={e => set({ [key]: e.target.value })} {...attributes} />
+      <input value={value[key] ?? ''} disabled={disabled} aria-invalid={path in errors} onChange={e => set({ [key]: e.target.value })} {...attributes} />
     </Field>
   )
   const select = (key: TextKey, label: string, path: string, options: readonly string[], labels: Record<string, string> | null, allowEmpty: boolean) => (
     <Field label={label} error={errors[path]} suggested={suggested?.has(key)}>
-      <select value={value[key]} disabled={disabled} onChange={e => set({ [key]: e.target.value })}>
+      <select value={value[key] ?? ''} disabled={disabled} onChange={e => set({ [key]: e.target.value })}>
         {allowEmpty && <option value="">Not set</option>}
         {options.map(option => <option key={option} value={option}>{labels?.[option] ? (key === 'priority' || key === 'type' ? t(labels[option]) : labels[option]) : option}</option>)}
       </select>
@@ -33,6 +33,9 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
         {input('role', 'Role *', 'role', { required: true })}
         {input('location', 'Location', 'location', { placeholder: 'Remote' })}
         {input('job_url', 'Job posting URL', 'job_url', { type: 'url', placeholder: 'https://…' })}
+        <Field label={t('application_form.apply_url', { ns: 'pages' })} error={errors.apply_url} suggested={suggested?.has('apply_url')} hint={t('application_form.apply_url_hint', { ns: 'pages' })}>
+          <input type="url" placeholder="https://…" value={value.apply_url ?? ''} disabled={disabled} aria-invalid={'apply_url' in errors} onChange={e => set({ apply_url: e.target.value })} />
+        </Field>
         {select('priority', 'Priority', 'priority', PRIORITIES, PRIORITY_LABELS, true)}
         {select('type', 'Contract type', 'type', CONTRACT_TYPES, CONTRACT_TYPE_LABELS, true)}
         {input('applied_at', 'Applied on', 'applied_at', { type: 'date' })}
@@ -71,6 +74,6 @@ export function ApplicationForm({ value, errors, disabled, onChange, suggested }
   </>
 }
 
-function Field({ label, error, suggested, children }: { label: string; error?: string; suggested?: boolean; children: ReactNode }) {
-  return <label className={suggested ? 'suggested' : undefined}>{label}{suggested && ' · filled by AI, please check'}{children}{error && <span className="field-error">{error}</span>}</label>
+function Field({ label, error, suggested, hint, children }: { label: string; error?: string; suggested?: boolean; hint?: string; children: ReactNode }) {
+  return <label className={suggested ? 'suggested' : undefined}>{label}{suggested && ' · filled by AI, please check'}{children}{hint && <span className="muted">{hint}</span>}{error && <span className="field-error">{error}</span>}</label>
 }

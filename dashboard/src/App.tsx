@@ -1,6 +1,7 @@
 import { PersonalProfilePage } from './pages/PersonalProfilePage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { PreparationPage } from './pages/PreparationPage'
+import { SubmitPage } from './pages/SubmitPage'
 import { ApplicationsProvider } from './data/loadApplications'
 import { TrashPage } from './pages/TrashPage'
 import { CvPage } from './pages/CvPage'
@@ -33,6 +34,7 @@ export function App() {
           <Route path="applications/:slug" element={<ApplicationPage />} />
           <Route path="applications/:slug/edit" element={<EditApplicationPage />} />
           <Route path="applications/:slug/preparation" element={<PreparationPage />} />
+          <Route path="applications/:slug/submit" element={<SubmitPage />} />
           <Route path="applications/:slug/job-description" element={<JobDescriptionPage />} />
           <Route path="applications/:slug/doc/*" element={<DocumentPage />} />
         </Route>

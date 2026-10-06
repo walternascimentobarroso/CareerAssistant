@@ -4,11 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ApplicationForm } from '../components/ApplicationForm'
 import { ModelPicker } from '../components/ModelPicker'
+import { StepIndicator } from '../components/StepIndicator'
 import { useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type AiSettings, type LiveApplication } from '../data/loadApplications'
 import { changedKeys, fieldsFromForm, formFromApplication, formFromSuggestion, validateFields, type ApplicationFormValues, type FieldErrors } from '../domain/applicationForm'
+import { applicationFlowSteps, type FlowApplication } from '../domain/applicationFlow'
+import { INITIAL_STATUS } from '../domain/constants'
 import { slugify, todayIsoDate } from '../domain/format'
-import { linesToItems } from '../domain/jobDescription'
+import { JOB_DESCRIPTION_FILE, linesToItems } from '../domain/jobDescription'
 import type { FetchedJobPosting, JobPostingCapture } from '../domain/jobPosting'
 import type { Suggestion } from '../domain/suggestion'
 
@@ -99,15 +102,20 @@ export function NewApplicationPage() {
         : { inputKind: 'manual' }
       const body = { fields, applied: form.applied_at !== '', date: form.applied_at || todayIsoDate(), ...(jobPosting.trim() && { jobPosting, jobSections, jobPostingCapture }) }
       const created = await request<LiveApplication>('/applications', 'POST', body)
-      await reload(); setDirty(false); navigate(`/applications/${created.slug}`)
+      await reload(); setDirty(false); navigate(form.applied_at ? `/applications/${created.slug}` : `/applications/${created.slug}/preparation`)
     } catch (e) { setMessage((e as Error).message) }
     finally { setBusy('') }
   }
+  // Nothing exists yet: the indicator only informs, navigation happens through the buttons.
+  const draft: FlowApplication = { slug: null, documents: jobPosting.trim() ? { [JOB_DESCRIPTION_FILE]: jobPosting } : {}, data: { company: form.company, role: form.role, apply_url: form.apply_url, status: INITIAL_STATUS } }
+  const indicator = <StepIndicator steps={applicationFlowSteps(draft, undefined, step === 'posting' ? 'posting' : 'details', t).steps} />
   if (step === 'posting') return <article className="detail">
+    {indicator}
     <Link to="/" className="back">{t('back_to_board', { ns: 'common' })}</Link>
     <h1>{t('new_application', { ns: 'common' })}</h1>
     <p className="muted">{t('new_application.step_one')}</p>
     <form className="application-form" onSubmit={e => { e.preventDefault(); void extract() }}>
+      <fieldset><legend>{t('new_application.posting_legend')}</legend>
       <label>{t('new_application.job_url')}<input type="url" value={jobUrl} disabled={!!busy} placeholder="https://" onChange={e => { setJobUrl(e.target.value); setDirty(true) }}
         onKeyDown={e => { if (e.key !== 'Enter') return; e.preventDefault(); if (jobUrl.trim()) void importFromUrl() }} /></label>
       <div className="toolbar">
@@ -120,17 +128,25 @@ export function NewApplicationPage() {
         <span className="muted">{t('new_application.imported_from', { url: imported.resolvedUrl, edited: jobPosting !== imported.text ? t('new_application.edited_since') : '' })}</span>
         <button type="button" disabled={!!busy} onClick={() => setImported(null)}>{t('new_application.treat_as_pasted')}</button>
       </div>}
+      </fieldset>
+      <fieldset><legend>{t('new_application.ai_legend')}</legend>
       {settings && <ModelPicker settings={settings} provider={provider} model={model} disabled={!!busy} onChange={(nextProvider, nextModel) => { setProvider(nextProvider); setModel(nextModel) }} />}
-      {settings && !hasKey && <p className="muted">{t('new_application.provider_no_key')}<Link to="/settings">{t('settings', { ns: 'common' })}</Link>.</p>}
       <p className="muted">{t('new_application.privacy')}</p>
-      <div className="toolbar">
-        <button disabled={!!busy || !jobPosting.trim() || !hasKey}>{busy === 'extracting' ? t('new_application.extracting') : t('new_application.extract_fields')}</button>
-        <button type="button" disabled={!!busy} onClick={() => { setForm(withTypedUrl(form)); setStep('review'); setMessage('') }}>{t('new_application.fill_manually')}</button>
+      </fieldset>
+      {!jobPosting.trim() && <p className="muted">{t('new_application.needs_posting')}</p>}
+      {jobPosting.trim() && settings && !hasKey && <p className="muted">{t('new_application.provider_no_key')}<Link to="/settings">{t('settings', { ns: 'common' })}</Link>.</p>}
+      <div className="flow-actions">
+        <span />
+        <span className="toolbar">
+          <button type="button" disabled={!!busy} onClick={() => { setForm(withTypedUrl(form)); setStep('review'); setMessage('') }}>{t('new_application.continue_without_ai')}</button>
+          <button className="primary" disabled={!!busy || !jobPosting.trim() || !hasKey}>{busy === 'extracting' ? t('new_application.extracting') : t('new_application.extract_and_continue')}</button>
+        </span>
       </div>
       <p role="status">{message}</p>
     </form>
   </article>
   return <article className="detail">
+    {indicator}
     <Link to="/" className="back">{t('back_to_board', { ns: 'common' })}</Link>
     <h1>{t('new_application', { ns: 'common' })}</h1>
     <p className="muted">{t('new_application.step_two', { identifier: slug ? t('new_application.identifier', { slug }) : t('new_application.fill_company_role') })}</p>
@@ -148,9 +164,9 @@ export function NewApplicationPage() {
         </div>
         <p className="muted">{t('new_application.posting_saved_hint')}</p>
       </fieldset>}
-      <div className="toolbar">
+      <div className="flow-actions">
         <button type="button" disabled={!!busy} onClick={() => { setStep('posting'); setMessage('') }}>{t('new_application.back_to_posting')}</button>
-        <button disabled={!!busy}>{busy === 'saving' ? t('saving', { ns: 'common' }) : t('new_application.create')}</button>
+        <button className="primary" disabled={!!busy}>{busy === 'saving' ? t('saving', { ns: 'common' }) : form.applied_at ? t('new_application.create') : t('new_application.create_and_continue')}</button>
       </div>
       <p role="status">{message}</p>
     </form>

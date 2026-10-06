@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { setPersonalTimezone } from '../domain/format'
 import type { Application } from '../domain/applications'
+import type { Preparation } from '../domain/applicationPreparation'
 import type { Message } from '../domain/messages'
 import type { JobPostingProvenance } from '../domain/jobPosting'
 export type LiveApplication = Application & {
@@ -44,6 +45,16 @@ export function ApplicationsProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', refresh)
   }, [reload])
   return <Context.Provider value={{ ...data, loading, error, reload, findApplication: slug => data.applications.find(a => a.slug === slug) }}>{children}</Context.Provider>
+}
+/** Read-only: `undefined` while loading or when the request fails, `null` when the preparation was never started. */
+export function usePreparation(slug: string) {
+  const [preparation, setPreparation] = useState<Preparation | null>()
+  useEffect(() => {
+    let current = true
+    void request<{ preparation: Preparation | null }>(`/applications/${slug}/preparation`).then(loaded => { if (current) setPreparation(loaded.preparation) }).catch(() => {})
+    return () => { current = false }
+  }, [slug])
+  return preparation
 }
 export function useApplications() {
   const state = useContext(Context)

@@ -10,6 +10,7 @@ export type ApplicationFormValues = {
   location: string
   applied_at: string
   job_url: string
+  apply_url?: string | null
   rateRequested: string
   rateMinimum: string
   rateCurrency: string
@@ -39,6 +40,7 @@ export function formFromApplication(data?: ApplicationData): ApplicationFormValu
     location: data?.location ?? '',
     applied_at: data?.applied_at ?? '',
     job_url: data?.job_url ?? '',
+    apply_url: data?.apply_url ?? '',
     rateRequested: data?.rate?.requested?.toString() ?? '',
     rateMinimum: data?.rate?.minimum?.toString() ?? '',
     rateCurrency: data?.rate?.currency ?? '',
@@ -66,6 +68,7 @@ export function formFromSuggestion(suggestion: Suggestion): ApplicationFormValue
     type: suggestion.type ?? '',
     location: suggestion.location ?? '',
     job_url: suggestion.job_url ?? '',
+    apply_url: suggestion.apply_url ?? '',
     rateRequested: suggestion.rate?.requested?.toString() ?? '',
     rateMinimum: suggestion.rate?.minimum?.toString() ?? '',
     rateCurrency: suggestion.rate?.currency ?? '',
@@ -95,6 +98,7 @@ export function fieldsFromForm(form: ApplicationFormValues, initial?: Applicatio
     location: optionalText(form.location) ?? null,
     applied_at: optionalText(form.applied_at) ?? null,
     job_url: optionalText(form.job_url) ?? null,
+    apply_url: optionalText(form.apply_url ?? '') ?? null,
     rate: rateFromForm(form, initial),
     contact: contactFromForm(form),
     next_action: nextActionFromForm(form),

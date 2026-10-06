@@ -486,3 +486,26 @@ test('form inspection revisions and submission records are atomic, owned and ide
   const sent = (await pool.query("SELECT channel FROM application_cvs WHERE application_id=$1 AND state='sent'", [application.id])).rows[0]
   assert.equal(sent.channel, 'https://company.test/apply')
 })
+
+
+test('manual submission atomically records status, date, CV and transition and rejects stale revisions', integration, async () => {
+  const application = await create('Manual submission')
+  const cv = await store.saveCv('manual-submission-cv', '# CV', null)
+  await assert.rejects(store.recordSubmission(application.slug, { revision: application.revision, date: '2026-10-06', cvVersionId: randomUUID() }), { status: 404 })
+  assert.equal((await store.application(application.slug)).data.status, 'interested')
+  const submitted = await store.recordSubmission(application.slug, { revision: application.revision, date: '2026-10-06', channel: 'email', cvVersionId: cv.versionId })
+  assert.equal(submitted.data.status, 'applied')
+  assert.equal(submitted.data.applied_at, '2026-10-06')
+  const sent = (await pool.query("SELECT * FROM application_cvs WHERE application_id=$1 AND state='sent'", [application.id])).rows[0]
+  assert.equal(sent.cv_version_id, cv.versionId)
+  assert.equal(sent.sent_on, '2026-10-06')
+  assert.equal(sent.channel, 'email')
+  const event = (await pool.query("SELECT * FROM application_events WHERE application_id=$1 AND type='applied'", [application.id])).rows[0]
+  assert.deepEqual([event.occurred_on, event.from_status, event.to_status, event.application_cv_id], ['2026-10-06', 'interested', 'applied', sent.id])
+  await assert.rejects(store.recordSubmission(application.slug, { revision: application.revision, date: '2026-10-06' }), { status: 409 })
+  await assert.rejects(store.recordSubmission(application.slug, { revision: submitted.revision, date: '2026-10-06' }), { status: 409 })
+  const withoutCv = await create('Manual without CV')
+  await store.recordSubmission(withoutCv.slug, { revision: withoutCv.revision, date: '2026-10-06' })
+  assert.equal((await pool.query('SELECT count(*) FROM application_cvs WHERE application_id=$1', [withoutCv.id])).rows[0].count, '0')
+  assert.equal((await store.application(withoutCv.slug)).data.status, 'applied')
+})

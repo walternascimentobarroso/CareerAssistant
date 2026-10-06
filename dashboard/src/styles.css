@@ -442,3 +442,32 @@ button.danger { color: #fff; background: #c62828; border-color: #c62828; }
 .message-dialog::backdrop { background: rgb(0 0 0 / .5); }
 .message-dialog[open], .message-dialog form { display: flex; flex-direction: column; gap: 16px; }
 .message-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.steps-nav { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 8px 0; border-bottom: 1px solid var(--border); }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; padding: 0; list-style: none; }
+.step { position: relative; display: flex; flex-direction: column; gap: 2px; padding-right: 8px; color: var(--muted); }
+/* Connector to the next step; filled when this step is completed. */
+.step:not(:last-child)::before { content: ''; position: absolute; top: 12px; left: 24px; right: 0; height: 1px; background: var(--border); }
+.step[data-status="completed"]:not(:last-child)::before { background: var(--accent); }
+.step-link { display: flex; flex-direction: column; gap: 4px; color: inherit; }
+a.step-link:hover { text-decoration: none; }
+a.step-link:hover .step-label, a.step-link:focus-visible .step-label { text-decoration: underline; }
+.step-circle { position: relative; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); font-size: 12px; font-weight: 600; }
+.step-label { font-size: 13px; }
+.step-hint { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.step[data-status="completed"] .step-circle { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.step[data-status="completed"] .step-label, .step[data-status="active"] .step-label { color: var(--text); }
+.step[data-status="active"] .step-circle { border: 2px solid var(--accent); color: var(--accent); }
+.step[data-status="active"] .step-label { font-weight: 600; }
+@media (max-width: 640px) {
+  .step-hint, .step:not([data-status="active"]) .step-label { display: none; }
+}
+.button { display: inline-block; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; }
+.button:hover { text-decoration: none; }
+button.primary, .button.primary { color: var(--surface); background: var(--accent); border-color: var(--accent); }
+.flow-actions { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 16px; }
+.flow-note { background: var(--today-bg); color: var(--today); padding: 8px 12px; border-radius: 5px; }
+.checklist { margin: 0; padding: 0; list-style: none; }
+.checklist li::before { content: '○ '; color: var(--muted); }
+.checklist li[data-done="true"]::before { content: '✓ '; color: var(--accent); }
