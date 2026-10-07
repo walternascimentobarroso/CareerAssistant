@@ -23,6 +23,7 @@ export function compareDecimals(a: string, b: string) {
 }
 export const personalProfileSchema = z.strictObject({
   name: text(200), email: z.preprocess(blank, z.email().max(320).nullable()), phone: text(100),
+  gender: text(100),
   city: text(200), country: z.preprocess(blank, country.nullable()), linkedin: url, github: url, website: url,
   yearsOfExperience: z.preprocess(blank, z.string().regex(/^(?:0|[1-9]\d{0,2})(?:\.\d)?$/, 'Use a non-negative number with at most one decimal place').nullable()),
   noticeType: z.enum(NOTICE_TYPES), noticeQuantity: z.number().int().positive().max(10000).nullable(), noticeUnit: z.enum(NOTICE_UNITS).nullable(),
@@ -58,7 +59,7 @@ export const savePersonalProfileSchema = z.strictObject({ ...personalProfileSche
   if (!parsed.success) parsed.error.issues.forEach(i => ctx.addIssue({ code: 'custom', path: i.path, message: i.message }))
 })
 export const emptyPersonalProfile: PersonalProfileFields = {
-  name: null, email: null, phone: null, city: null, country: null, linkedin: null, github: null, website: null,
+  name: null, email: null, phone: null, gender: null, city: null, country: null, linkedin: null, github: null, website: null,
   yearsOfExperience: null, noticeType: 'unknown', noticeQuantity: null, noticeUnit: null, availableFrom: null,
   salaryExpected: null, salaryMinimum: null, salaryCurrency: null, salaryPeriod: null, salaryVat: null, remotePreference: null,
   workAuthorizations: [], languages: [], contractPreferences: [],

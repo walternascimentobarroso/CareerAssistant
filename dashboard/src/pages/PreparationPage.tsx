@@ -8,7 +8,7 @@ import { confirmDiscard, useUnsavedGuard } from '../components/useUnsavedGuard'
 import { request, useApplications, type Cv, type LiveApplication } from '../data/loadApplications'
 import { KNOWLEDGE_CATEGORIES, SCOPE_TYPES, formatAnswer, normalizeText, type AnswerType, type AnswerValue, type ScopeType } from '../domain/knowledge'
 import { applicationFlowSteps } from '../domain/applicationFlow'
-import { PROFILE_CONCEPTS, answerFits, preparationSummary, type Approval, type Preparation, type PreparationAnswer } from '../domain/applicationPreparation'
+import { answerFits, preparationSummary, type Approval, type Preparation, type PreparationAnswer } from '../domain/applicationPreparation'
 
 type Loaded = { preparation: Preparation }
 type Context = { country: string; language: string; cvRequired: boolean }
@@ -110,7 +110,7 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
     const saved = current.id === null
       ? await run(() => request<Loaded>(`${path}/answers`, 'POST', { ...requirementOf(current), revision }), t('preparation.question_added'))
       : await run(() => request<Loaded>(`${path}/answers/${current.id}`, 'PUT', { ...requirementOf(current), answer: current.answer, approval: current.accept ? 'accepted' : 'pending', revision,
-        remember: current.remember ? { concept: current.rememberConcept, category: current.category, scopes: current.scopes } : undefined }), t('preparation.answer_saved'))
+        remember: current.remember ? { concept: questionConcept(current.question), category: current.category, scopes: current.scopes } : undefined }), t('preparation.answer_saved'))
     if (saved) setDraft(null)
   }
   const review = (answer: PreparationAnswer, approval: Approval, value = answer.answer) => {
@@ -135,23 +135,19 @@ function PreparationWorkspace({ application }: { application: LiveApplication })
   const draftForm = draft && <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void saveDraft(draft) }}><fieldset disabled={busy}><legend>{draft.id ? t('preparation.edit_question') : t('preparation.new_question')}</legend>
       <label>{t('preparation.question')}<input value={draft.question} onChange={e => set({ question: e.target.value })} /></label>
       <div className="form-grid">
-        <label>{t('preparation.concept_optional_otherwise_matched_by_wording')}<input list="known-concepts" value={draft.concept} onChange={e => set({ concept: e.target.value })} /></label>
-        <label>{t('preparation.answer_type')}<select value={draft.type} onChange={e => set({ type: e.target.value as AnswerType, answer: null, accept: false })}>{ANSWER_TYPES.map(type => <option key={type} value={type}>{t(`preparation.labels.answer_type.${type}`)}</option>)}</select></label>
+        <label>{t('preparation.answer_type')}<select value={draft.type} onChange={e => set({ type: e.target.value as AnswerType, answer: null, accept: false })}>{Object.values({ text: 'text', boolean: 'boolean', number: 'number', single_select: 'single_select', multi_select: 'multi_select', money: 'money' } as Record<string, AnswerType>).map(type => <option key={type} value={type}>{t(`preparation.labels.answer_type.${type}`)}</option>)}</select></label>
       </div>
-      <datalist id="known-concepts">{PROFILE_CONCEPTS.map(concept => <option key={concept} value={concept} />)}</datalist>
       {(draft.type === 'single_select' || draft.type === 'multi_select') && <label>{t('preparation.options_one_per_line')}<textarea rows={3} value={draft.options} onChange={e => set({ options: e.target.value, answer: null, accept: false })} /></label>}
       <label><input type="checkbox" checked={draft.required} onChange={e => set({ required: e.target.checked })} />{t('preparation.required')}</label>
       {draft.id && <>
         <AnswerInput type={draft.type} options={optionsOf(draft)} value={draft.answer} onChange={answer => set({ answer })} />
         <label><input type="checkbox" checked={draft.accept} onChange={e => set({ accept: e.target.checked, remember: draft.remember && e.target.checked })} />{t('preparation.accept_this_answer')}</label>
         <label><input type="checkbox" checked={draft.remember} disabled={!draft.accept} onChange={e => set({ remember: e.target.checked })} />{t('preparation.remember_this_answer')}</label>
-        {draft.remember && <fieldset><legend>{t('preparation.reusable_answer')}</legend><div className="form-grid">
-          <label>{t('preparation.concept')}<input value={draft.rememberConcept} onChange={e => set({ rememberConcept: e.target.value })} /></label>
+        {draft.remember && <fieldset><legend>{t('preparation.reusable_answer')}</legend>
           <label>{t('preparation.category')}<select value={draft.category} onChange={e => set({ category: e.target.value })}>{KNOWLEDGE_CATEGORIES.map(c => <option key={c} value={c}>{t(`preparation.labels.category.${c}`)}</option>)}</select></label>
-        </div>
-        <p>{t('preparation.reuse_only_when_all_of_these_match_this_application')}</p>
-        {SCOPE_TYPES.map(scope => <label key={scope}><input type="checkbox" checked={draft.scopes.includes(scope)} onChange={e => set({ scopes: e.target.checked ? [...draft.scopes, scope] : draft.scopes.filter(s => s !== scope) })} />{t(`preparation.labels.scope.${scope.toLowerCase()}`)}</label>)}
-        {draft.scopes.length === 0 && <p role="alert">{t('preparation.unrestricted_answer_hint')}</p>}
+          <p>{t('preparation.reuse_only_when_all_of_these_match_this_application')}</p>
+          {SCOPE_TYPES.map(scope => <label key={scope}><input type="checkbox" checked={draft.scopes.includes(scope)} onChange={e => set({ scopes: e.target.checked ? [...draft.scopes, scope] : draft.scopes.filter(s => s !== scope) })} />{t(`preparation.labels.scope.${scope.toLowerCase()}`)}</label>)}
+          {draft.scopes.length === 0 && <p role="alert">{t('preparation.unrestricted_answer_hint')}</p>}
         </fieldset>}
       </>}
       <div className="toolbar"><button>{busy ? t('saving', { ns: 'common' }) : t('save', { ns: 'common' })}</button><button type="button" onClick={() => { if (confirmDiscard(true)) setDraft(null) }}>{t('cancel', { ns: 'common' })}</button></div>

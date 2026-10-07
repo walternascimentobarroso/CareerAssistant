@@ -628,8 +628,9 @@ export class PostgresStore {
       for (const field of fields) {
         if (field.type === 'file' || !field.label.trim()) continue
         const answerType = typeMap[field.type] ?? 'text'
-        await client.query('INSERT INTO application_answers(preparation_id,question,concept,answer_type,options,required) VALUES ($1,$2,NULL,$3,$4::jsonb,$5)',
-          [preparationId, field.label.trim(), answerType, JSON.stringify([]), field.required])
+        const concept = detectProfileConcept(field.label)
+        await client.query('INSERT INTO application_answers(preparation_id,question,concept,answer_type,options,required) VALUES ($1,$2,$3,$4,$5::jsonb,$6)',
+          [preparationId, field.label.trim(), concept, answerType, JSON.stringify([]), field.required])
       }
       return this.preparationView(client, preparationId)
     })
@@ -823,6 +824,19 @@ function answerView(row: Row): PreparationAnswer {
 function resolutionContext(preparation: Row): ResolutionContext {
   return { country:preparation.country,language:preparation.language,location:preparation.location,contractType:preparation.contract_type,
     companyId:preparation.company_id,jobId:preparation.job_id,applicationId:preparation.application_id }
+}
+function detectProfileConcept(label: string): string | null {
+  const n = normalizeText(label)
+  if (n.includes('email')) return 'personal.email'
+  if (n.includes('linkedin')) return 'personal.linkedin'
+  if (n.includes('github')) return 'personal.github'
+  if (n.includes('gender')) return 'personal.gender'
+  if (n.includes('phone') || n.includes('telephone') || n.includes('mobile')) return 'personal.phone'
+  if (n.includes('portfolio') || (n.includes('personal') && n.includes('website'))) return 'personal.website'
+  if (n.includes('right to work') || n.includes('work authorization') || n.includes('work permit') || n.includes('work in')) return 'work_authorization.authorized'
+  if (n.includes('sponsorship')) return 'work_authorization.requires_sponsorship'
+  if (n.includes('years of experience') || n.includes('years experience')) return 'experience.years_total'
+  return null
 }
 function scopedContext(scopes: Restriction['type'][], context: ResolutionContext) {
   const values=contextValues(context)

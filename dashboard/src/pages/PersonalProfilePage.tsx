@@ -56,7 +56,7 @@ export function PersonalProfilePage() {
     {revision === null && <p>{t('personal_profile.no_profile_hint')}</p>}
     <form className="application-form" noValidate onSubmit={e => { e.preventDefault(); void save() }}>
       <fieldset disabled={busy}><legend>{t('personal_profile.personal_information')}</legend><div className="form-grid">
-        {input('name', t('personal_profile.name'))}{input('email', t('personal_profile.email'), 'email')}{input('phone', t('personal_profile.phone'), 'tel')}{input('city', t('personal_profile.current_city'))}{input('country', t('personal_profile.current_country_iso_code_e_g_pt'))}
+        {input('name', t('personal_profile.name'))}{input('email', t('personal_profile.email'), 'email')}{input('phone', t('personal_profile.phone'), 'tel')}{input('gender', t('personal_profile.gender'))}{input('city', t('personal_profile.current_city'))}{input('country', t('personal_profile.current_country_iso_code_e_g_pt'))}
         {input('linkedin', t('personal_profile.linkedin'), 'url')}{input('github', t('personal_profile.github'), 'url')}{input('website', t('personal_profile.website'), 'url')}
       </div></fieldset>
       <fieldset disabled={busy}><legend>{t('personal_profile.work_eligibility_and_availability')}</legend>

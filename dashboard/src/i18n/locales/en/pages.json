@@ -160,6 +160,7 @@
     "github": "GitHub",
     "email": "Email",
     "phone": "Phone",
+    "gender": "Gender",
     "level": "Level",
     "name": "Name",
     "vat": "VAT",

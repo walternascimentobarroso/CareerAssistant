@@ -13,6 +13,7 @@ function eligibility(profile: PersonalProfile, context: ResolutionContext, field
 }
 const profileAnswers: Record<ProfileConcept, (profile: PersonalProfile, context: ResolutionContext) => AnswerValue | null> = {
   'personal.name': p => textAnswer(p.name), 'personal.email': p => textAnswer(p.email), 'personal.phone': p => textAnswer(p.phone),
+  'personal.gender': p => textAnswer(p.gender),
   'personal.city': p => textAnswer(p.city), 'personal.country': p => textAnswer(p.country),
   'personal.linkedin': p => textAnswer(p.linkedin), 'personal.github': p => textAnswer(p.github), 'personal.website': p => textAnswer(p.website),
   'experience.years_total': p => p.yearsOfExperience ? { type: 'number', value: p.yearsOfExperience } : null,

@@ -8,7 +8,7 @@ export type Approval = (typeof APPROVALS)[number]
 export const PREPARATION_STATUSES = ['NOT_READY', 'NEEDS_REVIEW', 'READY', 'SUBMITTING', 'SUBMITTED', 'FAILED'] as const
 export type PreparationStatus = (typeof PREPARATION_STATUSES)[number]
 /** Concepts answered from the personal profile instead of the knowledge base. */
-export const PROFILE_CONCEPTS = ['personal.name', 'personal.email', 'personal.phone', 'personal.city', 'personal.country', 'personal.linkedin', 'personal.github', 'personal.website',
+export const PROFILE_CONCEPTS = ['personal.name', 'personal.email', 'personal.phone', 'personal.gender', 'personal.city', 'personal.country', 'personal.linkedin', 'personal.github', 'personal.website',
   'experience.years_total', 'work_authorization.authorized', 'work_authorization.requires_sponsorship'] as const
 export type ProfileConcept = (typeof PROFILE_CONCEPTS)[number]
 
